@@ -1,0 +1,59 @@
+diff --git a/res/values-zh-rCN/cm_strings.xml b/res/values-zh-rCN/cm_strings.xml
+index b8cafec828..1173d818ca 100644
+--- a/res/values-zh-rCN/cm_strings.xml
++++ b/res/values-zh-rCN/cm_strings.xml
+@@ -50,6 +50,8 @@
+     <string name="lockpattern_settings_enable_dots_title">显示图案圆点</string>
+     <string name="max_refresh_rate_title">最高刷新率</string>
+     <string name="min_refresh_rate_title">最小刷新率</string>
++    <string name="advanced_reboot_title">高级重启</string>
++    <string name="advanced_reboot_summary">在电源菜单中显示重启到恢复模式、下载模式和 fastboot 的选项</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="tablet">在您的平板电脑正面找到指纹传感器。</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="device">在您的设备正面找到指纹传感器。</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="default">在您的手机正面找到指纹传感器。</string>
+diff --git a/res/values-zh-rTW/cm_strings.xml b/res/values-zh-rTW/cm_strings.xml
+index 04bd12c66f..381582bfa8 100644
+--- a/res/values-zh-rTW/cm_strings.xml
++++ b/res/values-zh-rTW/cm_strings.xml
+@@ -50,6 +50,8 @@
+     <string name="lockpattern_settings_enable_dots_title">顯示解鎖圖案節點</string>
+     <string name="max_refresh_rate_title">最高螢幕更新頻率</string>
+     <string name="min_refresh_rate_title">最低更新率</string>
++    <string name="advanced_reboot_title">進階重新啟動</string>
++    <string name="advanced_reboot_summary">在電源選單中顯示重新啟動到 Recovery、下載模式和 fastboot 的選項</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="tablet">找到位於平板電腦前面的指紋感應器。</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="device">指紋感應器位於裝置正面。</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="default">指紋感應器位於手機正面。</string>
+diff --git a/res/values/cm_strings.xml b/res/values/cm_strings.xml
+index 37f5034cd3..f01d4eb8d8 100644
+--- a/res/values/cm_strings.xml
++++ b/res/values/cm_strings.xml
+@@ -100,6 +100,10 @@
+     <!-- Min refresh rate -->
+     <string name="min_refresh_rate_title">Minimum refresh rate</string>
+ 
++    <!-- Advanced restart menu -->
++    <string name="advanced_reboot_title">Advanced restart</string>
++    <string name="advanced_reboot_summary">Show restart options for recovery, download mode, and fastboot in the power menu</string>
++
+     <!-- Message shown in fingerprint enrollment dialog to locate the sensor -->
+     <string name="fingerprint_enroll_find_sensor_message_front" product="tablet">Locate the fingerprint sensor on the front of your tablet.</string>
+     <string name="fingerprint_enroll_find_sensor_message_front" product="device">Locate the fingerprint sensor on the front of your device.</string>
+diff --git a/res/xml/power_menu_settings.xml b/res/xml/power_menu_settings.xml
+index 48cc40c0bd..6f8a476f40 100644
+--- a/res/xml/power_menu_settings.xml
++++ b/res/xml/power_menu_settings.xml
+@@ -40,6 +40,13 @@
+             settings:controller="com.android.settings.gestures.LongPressPowerForAssistantPreferenceController"/>
+     </PreferenceCategory>
+ 
++    <lineageos.preference.LineageSecureSettingSwitchPreference
++        android:key="advanced_reboot"
++        android:title="@string/advanced_reboot_title"
++        android:summary="@string/advanced_reboot_summary"
++        android:defaultValue="false"
++        settings:allowDividerAbove="true" />
++
+     <com.android.settings.widget.LabeledSeekBarPreference
+         android:key="gesture_power_menu_long_press_for_assist_sensitivity"
+         android:title="@string/power_menu_long_press_for_assist_sensitivity_title"

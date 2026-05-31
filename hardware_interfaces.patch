@@ -1,0 +1,182 @@
+diff --git a/bluetooth/1.0/default/bluetooth_address.cc b/bluetooth/1.0/default/bluetooth_address.cc
+index 93a546995..b0e3b2cb6 100644
+--- a/bluetooth/1.0/default/bluetooth_address.cc
++++ b/bluetooth/1.0/default/bluetooth_address.cc
+@@ -28,6 +28,47 @@ namespace bluetooth {
+ namespace V1_0 {
+ namespace implementation {
+ 
++namespace {
++
++static constexpr char SERIALNO_PROPERTY[] = "ro.serialno";
++static constexpr char BOOT_SERIALNO_PROPERTY[] = "ro.boot.serialno";
++static constexpr uint64_t FNV1A_64_OFFSET_BASIS = 14695981039346656037ULL;
++static constexpr uint64_t FNV1A_64_PRIME = 1099511628211ULL;
++
++uint64_t fnv1a_hash(const char* value) {
++  uint64_t hash = FNV1A_64_OFFSET_BASIS;
++  for (const char* p = value; *p != '\0'; ++p) {
++    hash ^= static_cast<uint8_t>(*p);
++    hash *= FNV1A_64_PRIME;
++  }
++  return hash;
++}
++
++bool get_address_from_serial(uint8_t* local_addr) {
++  char serial[PROPERTY_VALUE_MAX] = {0};
++  if (!property_get(SERIALNO_PROPERTY, serial, NULL)) {
++    property_get(BOOT_SERIALNO_PROPERTY, serial, NULL);
++  }
++
++  if (serial[0] == '\0') {
++    return false;
++  }
++
++  const uint64_t hash = fnv1a_hash(serial);
++  local_addr[0] = 0x02;
++  for (size_t i = 1; i < BluetoothAddress::kBytes; ++i) {
++    local_addr[i] = (hash >> ((i - 1) * 8)) & 0xff;
++  }
++
++  char address[BluetoothAddress::kStringLength + 1] = {0};
++  BluetoothAddress::bytes_to_string(local_addr, address);
++  ALOGW("%s: Using local fallback BDA %s derived from serial", __func__,
++        address);
++  return true;
++}
++
++}  // namespace
++
+ void BluetoothAddress::bytes_to_string(const uint8_t* addr, char* addr_str) {
+   sprintf(addr_str, "%02x:%02x:%02x:%02x:%02x:%02x", addr[0], addr[1], addr[2],
+           addr[3], addr[4], addr[5]);
+@@ -87,7 +128,7 @@ bool BluetoothAddress::get_local_address(uint8_t* local_addr) {
+     return true;
+   }
+ 
+-  return false;
++  return get_address_from_serial(local_addr);
+ }
+ 
+ }  // namespace implementation
+diff --git a/usb/gadget/1.2/default/Android.bp b/usb/gadget/1.2/default/Android.bp
+index 713ce8304..f91b6a654 100644
+--- a/usb/gadget/1.2/default/Android.bp
++++ b/usb/gadget/1.2/default/Android.bp
+@@ -23,9 +23,29 @@ package {
+     default_applicable_licenses: ["hardware_interfaces_license"],
+ }
+ 
++soong_config_module_type {
++    name: "usb_gadget_hal_cc_defaults",
++    module_type: "cc_defaults",
++    config_namespace: "usbGadgetHalVars",
++    value_variables: ["gadget_name"],
++    properties: ["cppflags"],
++}
++
++usb_gadget_hal_cc_defaults {
++    name: "usb_gadget_hal_defaults",
++    soong_config_variables: {
++        gadget_name: {
++            cppflags: ["-DGADGET_NAME=\"%s\""],
++        },
++    },
++}
++
+ cc_binary {
+     name: "android.hardware.usb.gadget@1.2-service",
+-    defaults: ["hidl_defaults"],
++    defaults: [
++        "hidl_defaults",
++        "usb_gadget_hal_defaults",
++    ],
+     relative_install_path: "hw",
+     init_rc: ["android.hardware.usb.gadget@1.2-service.rc"],
+     vintf_fragments: ["android.hardware.usb.gadget@1.2-service.xml"],
+diff --git a/usb/gadget/1.2/default/UsbGadget.cpp b/usb/gadget/1.2/default/UsbGadget.cpp
+index 8dd229e0f..075829c9f 100644
+--- a/usb/gadget/1.2/default/UsbGadget.cpp
++++ b/usb/gadget/1.2/default/UsbGadget.cpp
+@@ -130,37 +130,37 @@ static V1_0::Status validateAndSetVidPid(uint64_t functions) {
+ 
+     switch (functions) {
+         case static_cast<uint64_t>(V1_2::GadgetFunction::MTP):
+-            ret = setVidPid("0x18d1", "0x4ee1");
++            ret = setVidPid("0x04e8", "0x6860");
+             break;
+         case V1_2::GadgetFunction::ADB | V1_2::GadgetFunction::MTP:
+-            ret = setVidPid("0x18d1", "0x4ee2");
++            ret = setVidPid("0x04e8", "0x6860");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::RNDIS):
+-            ret = setVidPid("0x18d1", "0x4ee3");
++            ret = setVidPid("0x04e8", "0x6863");
+             break;
+         case V1_2::GadgetFunction::ADB | V1_2::GadgetFunction::RNDIS:
+-            ret = setVidPid("0x18d1", "0x4ee4");
++            ret = setVidPid("0x04e8", "0x6864");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::PTP):
+-            ret = setVidPid("0x18d1", "0x4ee5");
++            ret = setVidPid("0x04e8", "0x6865");
+             break;
+         case V1_2::GadgetFunction::ADB | V1_2::GadgetFunction::PTP:
+-            ret = setVidPid("0x18d1", "0x4ee6");
++            ret = setVidPid("0x04e8", "0x6865");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::ADB):
+-            ret = setVidPid("0x18d1", "0x4ee7");
++            ret = setVidPid("0x04e8", "0x685d");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::MIDI):
+-            ret = setVidPid("0x18d1", "0x4ee8");
++            ret = setVidPid("0x04e8", "0x686c");
+             break;
+         case V1_2::GadgetFunction::ADB | V1_2::GadgetFunction::MIDI:
+-            ret = setVidPid("0x18d1", "0x4ee9");
++            ret = setVidPid("0x04e8", "0x686c");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::NCM):
+-            ret = setVidPid("0x18d1", "0x4eeb");
++            ret = setVidPid("0x04e8", "0x685d");
+             break;
+         case V1_2::GadgetFunction::ADB | V1_2::GadgetFunction::NCM:
+-            ret = setVidPid("0x18d1", "0x4eec");
++            ret = setVidPid("0x04e8", "0x685d");
+             break;
+         case static_cast<uint64_t>(V1_2::GadgetFunction::ACCESSORY):
+             ret = setVidPid("0x18d1", "0x2d00");
+diff --git a/usb/gadget/1.2/default/UsbGadget.h b/usb/gadget/1.2/default/UsbGadget.h
+index 12ad8eed6..56c4e2836 100644
+--- a/usb/gadget/1.2/default/UsbGadget.h
++++ b/usb/gadget/1.2/default/UsbGadget.h
+@@ -67,10 +67,14 @@ using ::android::hardware::usb::gadget::setVidPid;
+ using ::android::hardware::usb::gadget::unlinkFunctions;
+ using ::std::string;
+ 
+-constexpr char kGadgetName[] = "11110000.usb";
++#ifndef GADGET_NAME
++#define GADGET_NAME "11110000.usb"
++#endif
++
++constexpr char kGadgetName[] = GADGET_NAME;
+ static MonitorFfs monitorFfs(kGadgetName);
+ 
+-#define UDC_PATH "/sys/class/udc/11110000.usb/"
++#define UDC_PATH "/sys/class/udc/" GADGET_NAME "/"
+ #define SPEED_PATH UDC_PATH "current_speed"
+ 
+ struct UsbGadget : public IUsbGadget {
+diff --git a/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp b/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp
+index fa50821b5..0924da7cf 100644
+--- a/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp
++++ b/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp
+@@ -170,7 +170,6 @@ Status addGenericAndroidFunctions(MonitorFfs* monitorFfs, uint64_t functions, bo
+ 
+     if ((functions & GadgetFunction::RNDIS) != 0) {
+         ALOGI("setCurrentUsbFunctions rndis");
+-        if (linkFunction("gsi.rndis", (*functionCount)++)) return Status::ERROR;
+         std::string rndisFunction = GetProperty(kVendorRndisConfig, "");
+         if (rndisFunction != "") {
+             if (linkFunction(rndisFunction.c_str(), (*functionCount)++)) return Status::ERROR;

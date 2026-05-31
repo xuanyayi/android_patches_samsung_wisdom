@@ -1,0 +1,23 @@
+diff --git a/src/java/com/android/internal/telephony/RILUtils.java b/src/java/com/android/internal/telephony/RILUtils.java
+index 61f1e82a76..e05ead779e 100644
+--- a/src/java/com/android/internal/telephony/RILUtils.java
++++ b/src/java/com/android/internal/telephony/RILUtils.java
+@@ -270,6 +270,7 @@ import android.net.InetAddresses;
+ import android.net.LinkAddress;
+ import android.net.LinkProperties;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.service.carrier.CarrierIdentifier;
+ import android.telephony.AccessNetworkConstants;
+ import android.telephony.Annotation;
+@@ -4586,6 +4587,10 @@ public class RILUtils {
+                 logicalModemList.add(new ModemInfo(modemInfo.modemId));
+             }
+         }
++        if (maxActiveVoiceCalls == 0 && SystemProperties.getBoolean(
++                "ro.vendor.telephony.force_legacy_voice_capability", false)) {
++            maxActiveVoiceCalls = 1;
++        }
+         return new PhoneCapability(maxActiveVoiceCalls, maxActiveData, logicalModemList,
+                 validationBeforeSwitchSupported, deviceNrCapabilities);
+     }

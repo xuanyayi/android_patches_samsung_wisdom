@@ -1,0 +1,98 @@
+diff --git a/init/selinux.cpp b/init/selinux.cpp
+index be8c5542f..d91dc3dd9 100644
+--- a/init/selinux.cpp
++++ b/init/selinux.cpp
+@@ -978,7 +978,7 @@ int SetupSelinux(char** argv) {
+     // needed to transition files from tmpfs to *_contexts_file context should not be granted to
+     // any process after selinux is set into enforcing mode.
+     if (selinux_android_restorecon("/dev/selinux/", SELINUX_ANDROID_RESTORECON_RECURSE) == -1) {
+-        PLOG(FATAL) << "restorecon failed of /dev/selinux failed";
++        PLOG(ERROR) << "restorecon failed of /dev/selinux failed";
+     }
+ 
+     SelinuxSetEnforcement();
+@@ -988,7 +988,7 @@ int SetupSelinux(char** argv) {
+     // but other file systems do.  In particular, this is needed for ramdisks such as the
+     // recovery image for A/B devices.
+     if (selinux_android_restorecon("/system/bin/init", 0) == -1) {
+-        PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
++        PLOG(ERROR) << "restorecon failed of /system/bin/init failed";
+     }
+ 
+     setenv(kEnvSelinuxStartedAt, std::to_string(start_time.time_since_epoch().count()).c_str(), 1);
+diff --git a/libprocessgroup/processgroup.cpp b/libprocessgroup/processgroup.cpp
+index 267e62c67..4df2166f4 100644
+--- a/libprocessgroup/processgroup.cpp
++++ b/libprocessgroup/processgroup.cpp
+@@ -58,7 +58,7 @@ using namespace std::chrono_literals;
+ bool CgroupGetControllerPath(const std::string& cgroup_name, std::string* path) {
+     auto controller = CgroupMap::GetInstance().FindController(cgroup_name);
+ 
+-    if (!controller.HasValue()) {
++    if (!controller.IsUsable()) {
+         return false;
+     }
+ 
+@@ -541,6 +541,7 @@ static int createProcessGroupInternal(uid_t uid, int initialPid, std::string cgr
+ 
+ int createProcessGroup(uid_t uid, int initialPid, bool memControl) {
+     std::string cgroup;
++    bool cgroup_v2 = false;
+ 
+     if (memControl && !UsePerAppMemcg()) {
+         PLOG(ERROR) << "service memory controls are used without per-process memory cgroup support";
+@@ -558,8 +559,13 @@ int createProcessGroup(uid_t uid, int initialPid, bool memControl) {
+         }
+     }
+ 
+-    CgroupGetControllerPath(CGROUPV2_CONTROLLER_NAME, &cgroup);
+-    return createProcessGroupInternal(uid, initialPid, cgroup, true);
++    if (CgroupGetControllerPath(CGROUPV2_CONTROLLER_NAME, &cgroup)) {
++        cgroup_v2 = true;
++    } else if (!CgroupGetMemcgAppsPath(&cgroup)) {
++        LOG(ERROR) << "Process cgroup controller is not mounted.";
++        return -ENOENT;
++    }
++    return createProcessGroupInternal(uid, initialPid, cgroup, cgroup_v2);
+ }
+ 
+ static bool SetProcessGroupValue(int tid, const std::string& attr_name, int64_t value) {
+diff --git a/rootdir/init.usb.configfs.rc b/rootdir/init.usb.configfs.rc
+index 3a33c94d3..50a747305 100644
+--- a/rootdir/init.usb.configfs.rc
++++ b/rootdir/init.usb.configfs.rc
+@@ -25,7 +25,7 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=adb && property:sys.u
+ 
+ on property:sys.usb.config=mtp && property:sys.usb.configfs=1
+     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "mtp"
+-    symlink /config/usb_gadget/g1/functions/mtp.gs0 /config/usb_gadget/g1/configs/b.1/f1
++    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
+     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+     setprop sys.usb.state ${sys.usb.config}
+ 
+@@ -34,14 +34,14 @@ on property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
+ 
+ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
+     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "mtp_adb"
+-    symlink /config/usb_gadget/g1/functions/mtp.gs0 /config/usb_gadget/g1/configs/b.1/f1
++    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
+     symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
+     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+     setprop sys.usb.state ${sys.usb.config}
+ 
+ on property:sys.usb.config=ptp && property:sys.usb.configfs=1
+     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "ptp"
+-    symlink /config/usb_gadget/g1/functions/ptp.gs1 /config/usb_gadget/g1/configs/b.1/f1
++    symlink /config/usb_gadget/g1/functions/ffs.ptp /config/usb_gadget/g1/configs/b.1/f1
+     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+     setprop sys.usb.state ${sys.usb.config}
+ 
+@@ -50,7 +50,7 @@ on property:sys.usb.config=ptp,adb && property:sys.usb.configfs=1
+ 
+ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=ptp,adb && property:sys.usb.configfs=1
+     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "ptp_adb"
+-    symlink /config/usb_gadget/g1/functions/ptp.gs1 /config/usb_gadget/g1/configs/b.1/f1
++    symlink /config/usb_gadget/g1/functions/ffs.ptp /config/usb_gadget/g1/configs/b.1/f1
+     symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
+     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+     setprop sys.usb.state ${sys.usb.config}

@@ -1,0 +1,263 @@
+diff --git a/media/mtp/MtpDevHandle.cpp b/media/mtp/MtpDevHandle.cpp
+index e8bdf806ee..2fc992faf4 100644
+--- a/media/mtp/MtpDevHandle.cpp
++++ b/media/mtp/MtpDevHandle.cpp
+@@ -16,6 +16,7 @@
+ 
+ #include <android-base/logging.h>
+ #include <cutils/properties.h>
++#include <algorithm>
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -28,15 +29,57 @@
+ #include <sys/types.h>
+ #include <sys/endian.h>
+ #include <unistd.h>
++#include <vector>
+ 
+ #include "MtpDevHandle.h"
++#include "mtp.h"
++#include "MtpFfsHandle.h"
+ 
+ namespace android {
+ 
+ constexpr char mtp_dev_path[] = "/dev/mtp_usb";
++constexpr int kSamsungMtpWriteIntData = 4;
++constexpr int kSamsungMtpSetZlpData = 9;
++constexpr int kSamsungMtpGetBulkPacketSize = 10;
++constexpr int kDefaultBulkPacketSize = 512;
++constexpr int kSamsungLegacyBufferSize = 32768;
++constexpr uint32_t kMaxMtpFileSize = 0xFFFFFFFF;
++
++static int writeExact(int fd, const void* data, size_t len) {
++    const char* buf = static_cast<const char*>(data);
++    while (len > 0) {
++        ssize_t n = TEMP_FAILURE_RETRY(::write(fd, buf, len));
++        if (n < 0) return -1;
++        if (n == 0) {
++            errno = EIO;
++            return -1;
++        }
++        buf += n;
++        len -= n;
++    }
++    return 0;
++}
++
++static int pwriteExact(int fd, const void* data, size_t len, off64_t offset) {
++    const char* buf = static_cast<const char*>(data);
++    while (len > 0) {
++        ssize_t n = TEMP_FAILURE_RETRY(::pwrite64(fd, buf, len, offset));
++        if (n < 0) return -1;
++        if (n == 0) {
++            errno = EIO;
++            return -1;
++        }
++        buf += n;
++        len -= n;
++        offset += n;
++    }
++    return 0;
++}
+ 
+ MtpDevHandle::MtpDevHandle()
+-    : mFd(-1) {};
++    : mFd(-1),
++      mBulkPacketSize(kDefaultBulkPacketSize),
++      mSamsungLegacy(false) {};
+ 
+ MtpDevHandle::~MtpDevHandle() {}
+ 
+@@ -45,24 +88,147 @@ int MtpDevHandle::read(void *data, size_t len) {
+ }
+ 
+ int MtpDevHandle::write(const void *data, size_t len) {
+-    return ::write(mFd, data, len);
++    int ret = writeExact(mFd, data, len);
++    if (ret < 0) return ret;
++
++    if (mSamsungLegacy && mBulkPacketSize > 0 && len % mBulkPacketSize == 0) {
++        return ioctl(mFd, kSamsungMtpSetZlpData);
++    }
++    return len;
+ }
+ 
+-int MtpDevHandle::receiveFile(mtp_file_range mfr, bool) {
++int MtpDevHandle::receiveFile(mtp_file_range mfr, bool zero_packet) {
++    if (mSamsungLegacy) {
++        if (mfr.length < 0 || mfr.offset < 0) {
++            errno = EINVAL;
++            return -1;
++        }
++
++        if (mfr.length > kMaxMtpFileSize) {
++            errno = EINVAL;
++            return -1;
++        }
++
++        std::vector<unsigned char> buffer(kSamsungLegacyBufferSize);
++        uint32_t file_length = static_cast<uint32_t>(mfr.length);
++        uint64_t offset = mfr.offset;
++
++        while (file_length > 0) {
++            size_t length = std::min(static_cast<uint32_t>(buffer.size()), file_length);
++            ssize_t ret = TEMP_FAILURE_RETRY(::read(mFd, buffer.data(), length));
++            if (ret < 0) return -1;
++            if (ret == 0) {
++                if (file_length == kMaxMtpFileSize) break;
++                errno = EIO;
++                return -1;
++            }
++
++            if (pwriteExact(mfr.fd, buffer.data(), ret, offset) < 0) return -1;
++
++            if (file_length == kMaxMtpFileSize) {
++                if (static_cast<size_t>(ret) < length) break;
++            } else {
++                file_length -= ret;
++            }
++
++            offset += ret;
++        }
++
++        // Samsung's legacy mtp char driver consumes zero-length OUT packets internally.
++        (void)zero_packet;
++        return 0;
++    }
++
+     return ioctl(mFd, MTP_RECEIVE_FILE, reinterpret_cast<unsigned long>(&mfr));
+ }
+ 
+ int MtpDevHandle::sendFile(mtp_file_range mfr) {
++    if (mSamsungLegacy) {
++        if (mfr.length < 0 || mfr.offset < 0) {
++            errno = EINVAL;
++            return -1;
++        }
++
++        std::vector<unsigned char> buffer(kSamsungLegacyBufferSize);
++        uint64_t file_length = mfr.length;
++        uint32_t given_length = std::min(static_cast<uint64_t>(kMaxMtpFileSize),
++                file_length + sizeof(mtp_data_header));
++        uint64_t offset = mfr.offset;
++
++        mtp_data_header* header = reinterpret_cast<mtp_data_header*>(buffer.data());
++        header->length = htole32(given_length);
++        header->type = htole16(MTP_CONTAINER_TYPE_DATA);
++        header->command = htole16(mfr.command);
++        header->transaction_id = htole32(mfr.transaction_id);
++
++        size_t init_read_len = std::min(static_cast<uint64_t>(
++                std::max(mBulkPacketSize - static_cast<int>(sizeof(mtp_data_header)), 0)),
++                file_length);
++        ssize_t ret = TEMP_FAILURE_RETRY(::pread64(mfr.fd,
++                buffer.data() + sizeof(mtp_data_header), init_read_len, offset));
++        if (ret != static_cast<ssize_t>(init_read_len)) {
++            if (ret >= 0) errno = EIO;
++            return -1;
++        }
++        if (writeExact(mFd, buffer.data(), sizeof(mtp_data_header) + init_read_len) < 0) {
++            return -1;
++        }
++
++        file_length -= init_read_len;
++        offset += init_read_len;
++        int last_write = sizeof(mtp_data_header) + init_read_len;
++
++        while (file_length > 0) {
++            size_t length = std::min(static_cast<uint64_t>(buffer.size()), file_length);
++            ret = TEMP_FAILURE_RETRY(::pread64(mfr.fd, buffer.data(), length, offset));
++            if (ret < 0) return -1;
++            if (ret == 0) {
++                errno = EIO;
++                return -1;
++            }
++            if (static_cast<size_t>(ret) < length) {
++                errno = EIO;
++                return -1;
++            }
++
++            if (writeExact(mFd, buffer.data(), ret) < 0) return -1;
++
++            file_length -= ret;
++            offset += ret;
++            last_write = ret;
++        }
++
++        if (last_write % mBulkPacketSize == 0) {
++            if (ioctl(mFd, kSamsungMtpSetZlpData) < 0) return -1;
++        }
++        return 0;
++    }
++
+     return ioctl(mFd, MTP_SEND_FILE_WITH_HEADER, reinterpret_cast<unsigned long>(&mfr));
+ }
+ 
+ int MtpDevHandle::sendEvent(mtp_event me) {
++    if (mSamsungLegacy) {
++        int ret = ioctl(mFd, kSamsungMtpWriteIntData, reinterpret_cast<unsigned long>(&me));
++        return ret < 0 ? -1 : 0;
++    }
++
+     return ioctl(mFd, MTP_SEND_EVENT, reinterpret_cast<unsigned long>(&me));
+ }
+ 
+ int MtpDevHandle::start(bool /* ptp */) {
+     mFd.reset(TEMP_FAILURE_RETRY(open(mtp_dev_path, O_RDWR)));
+     if (mFd == -1) return -1;
++
++    mSamsungLegacy = true;
++    int packet_size = ioctl(mFd, kSamsungMtpGetBulkPacketSize);
++    if (packet_size > 0) {
++        mBulkPacketSize = packet_size;
++        LOG(INFO) << "Using Samsung legacy MTP gadget with bulk packet size " << mBulkPacketSize;
++    } else {
++        PLOG(WARNING) << "Using Samsung legacy MTP gadget with default bulk packet size "
++                      << mBulkPacketSize;
++    }
+     return 0;
+ }
+ 
+diff --git a/media/mtp/MtpDevHandle.h b/media/mtp/MtpDevHandle.h
+index 740ac857fe..1d39ec7ffb 100644
+--- a/media/mtp/MtpDevHandle.h
++++ b/media/mtp/MtpDevHandle.h
+@@ -25,6 +25,8 @@ namespace android {
+ class MtpDevHandle : public IMtpHandle {
+ private:
+     android::base::unique_fd mFd;
++    int mBulkPacketSize;
++    bool mSamsungLegacy;
+ 
+ public:
+     MtpDevHandle();
+diff --git a/media/mtp/MtpServer.cpp b/media/mtp/MtpServer.cpp
+index 6fcf119976..887b7fb18b 100644
+--- a/media/mtp/MtpServer.cpp
++++ b/media/mtp/MtpServer.cpp
+@@ -46,6 +46,7 @@
+ 
+ namespace android {
+ static const int SN_EVENT_LOG_ID = 0x534e4554;
++constexpr char kMtpDevPath[] = "/dev/mtp_usb";
+ 
+ static const MtpOperationCode kSupportedOperationCodes[] = {
+     MTP_OPERATION_GET_DEVICE_INFO,
+@@ -122,12 +123,14 @@ MtpServer::MtpServer(IMtpDatabase* database, int controlFd, bool ptp,
+         mSendObjectFileSize(0),
+         mSendObjectModifiedTime(0)
+ {
+-    bool ffs_ok = access(FFS_MTP_EP0, W_OK) == 0;
++    bool ffs_ok = controlFd >= 0 && access(FFS_MTP_EP0, W_OK) == 0;
+     if (ffs_ok) {
+         bool aio_compat = android::base::GetBoolProperty("sys.usb.ffs.aio_compat", false);
+         mHandle = aio_compat ? new MtpFfsCompatHandle(controlFd) : new MtpFfsHandle(controlFd);
+-    } else {
++    } else if (access(kMtpDevPath, R_OK | W_OK) == 0) {
+         mHandle = new MtpDevHandle();
++    } else {
++        mHandle = new MtpFfsCompatHandle(controlFd);
+     }
+ }
+ 

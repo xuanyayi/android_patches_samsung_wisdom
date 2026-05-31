@@ -1,0 +1,253 @@
+diff --git a/services/gpuservice/gpuwork/GpuWork.cpp b/services/gpuservice/gpuwork/GpuWork.cpp
+index 974ae38b13..b2c3bf1eda 100644
+--- a/services/gpuservice/gpuwork/GpuWork.cpp
++++ b/services/gpuservice/gpuwork/GpuWork.cpp
+@@ -66,10 +66,11 @@ bool equalGpuIdUid(const android::gpuwork::GpuIdUid& l, const android::gpuwork::
+ // Gets a BPF map from |mapPath|.
+ template <class Key, class Value>
+ bool getBpfMap(const char* mapPath, bpf::BpfMap<Key, Value>* out) {
+-    errno = 0;
+-    auto map = bpf::BpfMap<Key, Value>(mapPath);
+-    if (!map.isValid()) {
+-        ALOGW("Failed to create bpf map from %s [%d(%s)]", mapPath, errno, strerror(errno));
++    bpf::BpfMap<Key, Value> map;
++    auto status = map.init(mapPath);
++    if (!status.ok()) {
++        ALOGW("Failed to create bpf map from %s [%s]", mapPath,
++              status.error().message().c_str());
+         return false;
+     }
+     *out = std::move(map);
+diff --git a/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp b/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
+index cc323ad42e..8585f8e842 100644
+--- a/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
+@@ -259,6 +259,7 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
+     size_t outCount = 0;
+     BitSet32 newPointerIdBits;
+     mHavePointerIds = true;
++    const bool isSamsungSPen = isSamsungSPenDevice();
+ 
+     for (size_t inIndex = 0; inIndex < inCount; inIndex++) {
+         const MultiTouchMotionAccumulator::Slot* inSlot =
+@@ -308,6 +309,9 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
+                 outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_FINGER;
+             }
+         }
++        if (isSamsungSPen && outPointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER) {
++            outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_STYLUS;
++        }
+         if (shouldSimulateStylusWithTouch() &&
+             outPointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER) {
+             outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_STYLUS;
+@@ -389,7 +393,7 @@ void MultiTouchInputMapper::configureRawPointerAxes() {
+ 
+ bool MultiTouchInputMapper::hasStylus() const {
+     return mMultiTouchMotionAccumulator.hasStylus() || mTouchButtonAccumulator.hasStylus() ||
+-            shouldSimulateStylusWithTouch();
++            shouldSimulateStylusWithTouch() || isSamsungSPenDevice();
+ }
+ 
+ bool MultiTouchInputMapper::shouldSimulateStylusWithTouch() const {
+@@ -399,4 +403,8 @@ bool MultiTouchInputMapper::shouldSimulateStylusWithTouch() const {
+             mParameters.deviceType == Parameters::DeviceType::TOUCH_SCREEN;
+ }
+ 
++bool MultiTouchInputMapper::isSamsungSPenDevice() const {
++    return getDeviceName() == "sec_e-pen";
++}
++
+ } // namespace android
+diff --git a/services/inputflinger/reader/mapper/MultiTouchInputMapper.h b/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
+index e7d935082a..54f17da130 100644
+--- a/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
++++ b/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
+@@ -110,6 +110,7 @@ private:
+     // "adb shell setprop persist.debug.input.simulate_stylus_with_touch true",
+     // and requires a reboot to take effect.
+     inline bool shouldSimulateStylusWithTouch() const;
++    bool isSamsungSPenDevice() const;
+ 
+     // If the slot is in use, return the bit id. Return std::nullopt otherwise.
+     std::optional<int32_t> getActiveBitId(const MultiTouchMotionAccumulator::Slot& inSlot);
+@@ -122,4 +123,4 @@ private:
+ 
+ } // namespace android
+ 
+-#endif // _UI_INPUTREADER_MULTI_TOUCH_INPUT_MAPPER_H
+\ No newline at end of file
++#endif // _UI_INPUTREADER_MULTI_TOUCH_INPUT_MAPPER_H
+diff --git a/services/inputflinger/reader/mapper/TouchInputMapper.cpp b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
+index 5a7016780a..361816f8d0 100644
+--- a/services/inputflinger/reader/mapper/TouchInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
+@@ -71,6 +71,21 @@ inline static int32_t signExtendNybble(int32_t value) {
+     return value >= 8 ? value - 16 : value;
+ }
+ 
++static bool isStylusPrimaryButton(int32_t buttonState) {
++    return (buttonState & AMOTION_EVENT_BUTTON_STYLUS_PRIMARY) != 0;
++}
++
++static bool isStylusPointerToolType(int32_t toolType) {
++    return toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
++            toolType == AMOTION_EVENT_TOOL_TYPE_ERASER;
++}
++
++static bool shouldSuppressWhenStylusIsActive(int32_t toolType) {
++    return toolType == AMOTION_EVENT_TOOL_TYPE_FINGER ||
++            toolType == AMOTION_EVENT_TOOL_TYPE_UNKNOWN ||
++            toolType == AMOTION_EVENT_TOOL_TYPE_PALM;
++}
++
+ // --- RawPointerAxes ---
+ 
+ RawPointerAxes::RawPointerAxes() {
+@@ -1046,6 +1061,7 @@ void TouchInputMapper::configureInputDevice(nsecs_t when, bool* outResetNeeded)
+     // preserve the cursor position.
+     if (mDeviceMode == DeviceMode::POINTER ||
+         (mDeviceMode == DeviceMode::DIRECT && mConfig.showTouches) ||
++        (mDeviceMode == DeviceMode::DIRECT && (mSource & AINPUT_SOURCE_STYLUS) != 0) ||
+         (mParameters.deviceType == Parameters::DeviceType::POINTER &&
+          mConfig.pointerCaptureRequest.enable)) {
+         if (mPointerController == nullptr) {
+@@ -1612,6 +1628,10 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+     // Apply stylus pressure to current cooked state.
+     applyExternalStylusTouchState(when);
+ 
++    if (mDeviceMode == DeviceMode::DIRECT) {
++        suppressFingerPointersWhenStylusIsActive();
++    }
++
+     // Synthesize key down from raw buttons if needed.
+     synthesizeButtonKeys(getContext(), AKEY_EVENT_ACTION_DOWN, when, readTime, getDeviceId(),
+                          mSource, mViewport.displayId, policyFlags, mLastCookedState.buttonState,
+@@ -1623,8 +1643,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+             uint32_t id = idBits.clearFirstMarkedBit();
+             const RawPointerData::Pointer& pointer =
+                     mCurrentRawState.rawPointerData.pointerForId(id);
+-            if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
+-                pointer.toolType == AMOTION_EVENT_TOOL_TYPE_ERASER) {
++            if (isStylusPointerToolType(pointer.toolType)) {
+                 mCurrentCookedState.stylusIdBits.markBit(id);
+             } else if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER ||
+                        pointer.toolType == AMOTION_EVENT_TOOL_TYPE_UNKNOWN) {
+@@ -1637,8 +1656,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+             uint32_t id = idBits.clearFirstMarkedBit();
+             const RawPointerData::Pointer& pointer =
+                     mCurrentRawState.rawPointerData.pointerForId(id);
+-            if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
+-                pointer.toolType == AMOTION_EVENT_TOOL_TYPE_ERASER) {
++            if (isStylusPointerToolType(pointer.toolType)) {
+                 mCurrentCookedState.stylusIdBits.markBit(id);
+             }
+         }
+@@ -2057,7 +2075,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
+         int32_t metaState = getContext()->getGlobalMetaState();
+         if (!mSentHoverEnter) {
+             dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_ENTER,
+-                           0, 0, metaState, mCurrentRawState.buttonState, 0,
++                           0, 0, metaState, mCurrentCookedState.buttonState, 0,
+                            mCurrentCookedState.cookedPointerData.pointerProperties,
+                            mCurrentCookedState.cookedPointerData.pointerCoords,
+                            mCurrentCookedState.cookedPointerData.idToIndex,
+@@ -2067,7 +2085,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
+         }
+ 
+         dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_MOVE, 0, 0,
+-                       metaState, mCurrentRawState.buttonState, 0,
++                       metaState, mCurrentCookedState.buttonState, 0,
+                        mCurrentCookedState.cookedPointerData.pointerProperties,
+                        mCurrentCookedState.cookedPointerData.pointerCoords,
+                        mCurrentCookedState.cookedPointerData.idToIndex,
+@@ -2381,7 +2399,10 @@ void TouchInputMapper::cookPointerData() {
+         PointerProperties& properties = mCurrentCookedState.cookedPointerData.pointerProperties[i];
+         properties.clear();
+         properties.id = id;
+-        properties.toolType = in.toolType;
++        properties.toolType = isStylusPrimaryButton(mCurrentCookedState.buttonState) &&
++                isStylusPointerToolType(in.toolType)
++                ? AMOTION_EVENT_TOOL_TYPE_ERASER
++                : in.toolType;
+ 
+         // Write id index and mark id as valid.
+         mCurrentCookedState.cookedPointerData.idToIndex[id] = i;
+@@ -2389,6 +2410,49 @@ void TouchInputMapper::cookPointerData() {
+     }
+ }
+ 
++void TouchInputMapper::suppressFingerPointersWhenStylusIsActive() {
++    CookedPointerData& currentPointerData = mCurrentCookedState.cookedPointerData;
++
++    bool hasActiveStylus = false;
++    for (uint32_t i = 0; i < currentPointerData.pointerCount; i++) {
++        const uint32_t id = currentPointerData.pointerProperties[i].id;
++        if ((currentPointerData.touchingIdBits.hasBit(id) ||
++             currentPointerData.hoveringIdBits.hasBit(id)) &&
++            isStylusPointerToolType(currentPointerData.pointerProperties[i].toolType)) {
++            hasActiveStylus = true;
++            break;
++        }
++    }
++    if (!hasActiveStylus) {
++        return;
++    }
++
++    uint32_t outCount = 0;
++    for (uint32_t i = 0; i < currentPointerData.pointerCount; i++) {
++        PointerProperties& properties = currentPointerData.pointerProperties[i];
++        const uint32_t id = properties.id;
++        if (shouldSuppressWhenStylusIsActive(properties.toolType)) {
++            currentPointerData.touchingIdBits.clearBit(id);
++            currentPointerData.hoveringIdBits.clearBit(id);
++            currentPointerData.validIdBits.clearBit(id);
++            if (mLastCookedState.cookedPointerData.touchingIdBits.hasBit(id)) {
++                currentPointerData.canceledIdBits.markBit(id);
++            } else {
++                currentPointerData.canceledIdBits.clearBit(id);
++            }
++            continue;
++        }
++
++        if (outCount != i) {
++            currentPointerData.pointerProperties[outCount].copyFrom(properties);
++            currentPointerData.pointerCoords[outCount].copyFrom(currentPointerData.pointerCoords[i]);
++        }
++        currentPointerData.idToIndex[id] = outCount;
++        outCount++;
++    }
++    currentPointerData.pointerCount = outCount;
++}
++
+ void TouchInputMapper::dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
+                                             PointerUsage pointerUsage) {
+     if (pointerUsage != mPointerUsage) {
+@@ -3723,6 +3787,16 @@ void TouchInputMapper::dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t p
+     float yCursorPosition = AMOTION_EVENT_INVALID_CURSOR_POSITION;
+     if (mDeviceMode == DeviceMode::POINTER) {
+         mPointerController->getPosition(&xCursorPosition, &yCursorPosition);
++    } else if (mDeviceMode == DeviceMode::DIRECT && mPointerController != nullptr && (source & AINPUT_SOURCE_STYLUS) != 0) {
++        if (action == AMOTION_EVENT_ACTION_HOVER_ENTER || action == AMOTION_EVENT_ACTION_HOVER_MOVE) {
++            xCursorPosition = pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_X);
++            yCursorPosition = pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_Y);
++            mPointerController->setPosition(xCursorPosition, yCursorPosition);
++            mPointerController->setPresentation(PointerControllerInterface::Presentation::POINTER);
++            mPointerController->unfade(PointerControllerInterface::Transition::IMMEDIATE);
++        } else if (action == AMOTION_EVENT_ACTION_HOVER_EXIT) {
++            mPointerController->fade(PointerControllerInterface::Transition::GRADUAL);
++        }
+     }
+     const int32_t displayId = getAssociatedDisplayId().value_or(ADISPLAY_ID_NONE);
+     const int32_t deviceId = getDeviceId();
+diff --git a/services/inputflinger/reader/mapper/TouchInputMapper.h b/services/inputflinger/reader/mapper/TouchInputMapper.h
+index 2937bf88d4..62b06d8b41 100644
+--- a/services/inputflinger/reader/mapper/TouchInputMapper.h
++++ b/services/inputflinger/reader/mapper/TouchInputMapper.h
+@@ -764,6 +764,7 @@ private:
+     void dispatchButtonPress(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+     const BitSet32& findActiveIdBits(const CookedPointerData& cookedPointerData);
+     void cookPointerData();
++    void suppressFingerPointersWhenStylusIsActive();
+     void abortTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+ 
+     void dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,

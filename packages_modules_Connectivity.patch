@@ -1,0 +1,483 @@
+diff --git a/netd/NetdUpdatable.cpp b/netd/NetdUpdatable.cpp
+index f0997fc15..4b5851787 100644
+--- a/netd/NetdUpdatable.cpp
++++ b/netd/NetdUpdatable.cpp
+@@ -37,12 +37,12 @@ int libnetd_updatable_init(const char* cg2_path) {
+ }
+ 
+ int libnetd_updatable_tagSocket(int sockFd, uint32_t tag, uid_t chargeUid, uid_t realUid) {
+-    if (android::net::gNetdUpdatable == nullptr) return -EPERM;
++    if (android::net::gNetdUpdatable == nullptr) return 0;
+     return android::net::gNetdUpdatable->mBpfHandler.tagSocket(sockFd, tag, chargeUid, realUid);
+ }
+ 
+ int libnetd_updatable_untagSocket(int sockFd) {
+-    if (android::net::gNetdUpdatable == nullptr) return -EPERM;
++    if (android::net::gNetdUpdatable == nullptr) return 0;
+     return android::net::gNetdUpdatable->mBpfHandler.untagSocket(sockFd);
+ }
+ 
+diff --git a/service-t/native/libs/libnetworkstats/BpfNetworkStats.cpp b/service-t/native/libs/libnetworkstats/BpfNetworkStats.cpp
+index 9ebef4d6d..b42b8bb6f 100644
+--- a/service-t/native/libs/libnetworkstats/BpfNetworkStats.cpp
++++ b/service-t/native/libs/libnetworkstats/BpfNetworkStats.cpp
+@@ -44,6 +44,17 @@ using base::Result;
+ // from the config value.
+ static constexpr char const* STATS_MAP_PATH[] = {STATS_MAP_B_PATH, STATS_MAP_A_PATH};
+ 
++template <class Map>
++bool initStatsMap(Map* map, const char* path, const char* name) {
++    auto ret = map->init(path);
++    if (!ret.ok()) {
++        ALOGW("BPF network stats unavailable, cannot open %s at %s: %s", name, path,
++              ret.error().message().c_str());
++        return false;
++    }
++    return true;
++}
++
+ int bpfGetUidStatsInternal(uid_t uid, Stats* stats,
+                            const BpfMap<uint32_t, StatsValue>& appUidStatsMap) {
+     auto statsEntry = appUidStatsMap.readValue(uid);
+@@ -58,13 +69,8 @@ int bpfGetUidStatsInternal(uid_t uid, Stats* stats,
+ }
+ 
+ int bpfGetUidStats(uid_t uid, Stats* stats) {
+-    BpfMapRO<uint32_t, StatsValue> appUidStatsMap(APP_UID_STATS_MAP_PATH);
+-
+-    if (!appUidStatsMap.isValid()) {
+-        int ret = -errno;
+-        ALOGE("Opening appUidStatsMap(%s) failed: %s", APP_UID_STATS_MAP_PATH, strerror(errno));
+-        return ret;
+-    }
++    BpfMapRO<uint32_t, StatsValue> appUidStatsMap;
++    if (!initStatsMap(&appUidStatsMap, APP_UID_STATS_MAP_PATH, "appUidStatsMap")) return 0;
+     return bpfGetUidStatsInternal(uid, stats, appUidStatsMap);
+ }
+ 
+@@ -100,18 +106,11 @@ int bpfGetIfaceStatsInternal(const char* iface, Stats* stats,
+ }
+ 
+ int bpfGetIfaceStats(const char* iface, Stats* stats) {
+-    BpfMapRO<uint32_t, StatsValue> ifaceStatsMap(IFACE_STATS_MAP_PATH);
+-    int ret;
+-    if (!ifaceStatsMap.isValid()) {
+-        ret = -errno;
+-        ALOGE("get ifaceStats map fd failed: %s", strerror(errno));
+-        return ret;
+-    }
+-    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap(IFACE_INDEX_NAME_MAP_PATH);
+-    if (!ifaceIndexNameMap.isValid()) {
+-        ret = -errno;
+-        ALOGE("get ifaceIndexName map fd failed: %s", strerror(errno));
+-        return ret;
++    BpfMapRO<uint32_t, StatsValue> ifaceStatsMap;
++    if (!initStatsMap(&ifaceStatsMap, IFACE_STATS_MAP_PATH, "ifaceStatsMap")) return 0;
++    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap;
++    if (!initStatsMap(&ifaceIndexNameMap, IFACE_INDEX_NAME_MAP_PATH, "ifaceIndexNameMap")) {
++        return 0;
+     }
+     return bpfGetIfaceStatsInternal(iface, stats, ifaceStatsMap, ifaceIndexNameMap);
+ }
+@@ -186,32 +185,22 @@ int parseBpfNetworkStatsDetailInternal(std::vector<stats_line>* lines,
+ int parseBpfNetworkStatsDetail(std::vector<stats_line>* lines,
+                                const std::vector<std::string>& limitIfaces, int limitTag,
+                                int limitUid) {
+-    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap(IFACE_INDEX_NAME_MAP_PATH);
+-    if (!ifaceIndexNameMap.isValid()) {
+-        int ret = -errno;
+-        ALOGE("get ifaceIndexName map fd failed: %s", strerror(errno));
+-        return ret;
++    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap;
++    if (!initStatsMap(&ifaceIndexNameMap, IFACE_INDEX_NAME_MAP_PATH, "ifaceIndexNameMap")) {
++        return 0;
+     }
+ 
+-    BpfMapRO<uint32_t, uint32_t> configurationMap(CONFIGURATION_MAP_PATH);
+-    if (!configurationMap.isValid()) {
+-        int ret = -errno;
+-        ALOGE("get configuration map fd failed: %s", strerror(errno));
+-        return ret;
+-    }
++    BpfMapRO<uint32_t, uint32_t> configurationMap;
++    if (!initStatsMap(&configurationMap, CONFIGURATION_MAP_PATH, "configurationMap")) return 0;
+     auto configuration = configurationMap.readValue(CURRENT_STATS_MAP_CONFIGURATION_KEY);
+     if (!configuration.ok()) {
+-        ALOGE("Cannot read the old configuration from map: %s",
++        ALOGW("Cannot read the old configuration from map: %s",
+               configuration.error().message().c_str());
+-        return -configuration.error().code();
++        return 0;
+     }
+     const char* statsMapPath = STATS_MAP_PATH[configuration.value()];
+-    BpfMap<StatsKey, StatsValue> statsMap(statsMapPath);
+-    if (!statsMap.isValid()) {
+-        int ret = -errno;
+-        ALOGE("get stats map fd failed: %s, path: %s", strerror(errno), statsMapPath);
+-        return ret;
+-    }
++    BpfMap<StatsKey, StatsValue> statsMap;
++    if (!initStatsMap(&statsMap, statsMapPath, "statsMap")) return 0;
+ 
+     // It is safe to read and clear the old map now since the
+     // networkStatsFactory should call netd to swap the map in advance already.
+@@ -262,20 +251,13 @@ int parseBpfNetworkStatsDevInternal(std::vector<stats_line>* lines,
+ }
+ 
+ int parseBpfNetworkStatsDev(std::vector<stats_line>* lines) {
+-    int ret = 0;
+-    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap(IFACE_INDEX_NAME_MAP_PATH);
+-    if (!ifaceIndexNameMap.isValid()) {
+-        ret = -errno;
+-        ALOGE("get ifaceIndexName map fd failed: %s", strerror(errno));
+-        return ret;
++    BpfMapRO<uint32_t, IfaceValue> ifaceIndexNameMap;
++    if (!initStatsMap(&ifaceIndexNameMap, IFACE_INDEX_NAME_MAP_PATH, "ifaceIndexNameMap")) {
++        return 0;
+     }
+ 
+-    BpfMapRO<uint32_t, StatsValue> ifaceStatsMap(IFACE_STATS_MAP_PATH);
+-    if (!ifaceStatsMap.isValid()) {
+-        ret = -errno;
+-        ALOGE("get ifaceStats map fd failed: %s", strerror(errno));
+-        return ret;
+-    }
++    BpfMapRO<uint32_t, StatsValue> ifaceStatsMap;
++    if (!initStatsMap(&ifaceStatsMap, IFACE_STATS_MAP_PATH, "ifaceStatsMap")) return 0;
+     return parseBpfNetworkStatsDevInternal(lines, ifaceStatsMap, ifaceIndexNameMap);
+ }
+ 
+diff --git a/service-t/src/com/android/server/net/BpfInterfaceMapUpdater.java b/service-t/src/com/android/server/net/BpfInterfaceMapUpdater.java
+index 3b44d8143..611bfb305 100644
+--- a/service-t/src/com/android/server/net/BpfInterfaceMapUpdater.java
++++ b/service-t/src/com/android/server/net/BpfInterfaceMapUpdater.java
+@@ -90,7 +90,7 @@ public class BpfInterfaceMapUpdater {
+     public void start() {
+         mHandler.post(() -> {
+             if (mBpfMap == null) {
+-                Log.wtf(TAG, "Fail to start: Null bpf map");
++                Log.w(TAG, "BPF interface map unavailable; disabling interface map updater");
+                 return;
+             }
+ 
+@@ -98,7 +98,8 @@ public class BpfInterfaceMapUpdater {
+                 // TODO: use a NetlinkMonitor and listen for RTM_NEWLINK messages instead.
+                 mNetd.registerUnsolicitedEventListener(new InterfaceChangeObserver());
+             } catch (RemoteException e) {
+-                Log.wtf(TAG, "Unable to register netd UnsolicitedEventListener, " + e);
++                Log.w(TAG, "Unable to register netd UnsolicitedEventListener, " + e);
++                return;
+             }
+ 
+             final String[] ifaces;
+@@ -106,7 +107,7 @@ public class BpfInterfaceMapUpdater {
+                 // TODO: use a netlink dump to get the current interface list.
+                 ifaces = mNetd.interfaceGetList();
+             } catch (RemoteException | ServiceSpecificException e) {
+-                Log.wtf(TAG, "Unable to query interface names by netd, " + e);
++                Log.w(TAG, "Unable to query interface names by netd, " + e);
+                 return;
+             }
+ 
+diff --git a/service-t/src/com/android/server/net/NetworkStatsService.java b/service-t/src/com/android/server/net/NetworkStatsService.java
+index 4f0f3411a..4e7e909c4 100644
+--- a/service-t/src/com/android/server/net/NetworkStatsService.java
++++ b/service-t/src/com/android/server/net/NetworkStatsService.java
+@@ -720,7 +720,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+                 return new BpfMap<U32, U8>(UID_COUNTERSET_MAP_PATH, BpfMap.BPF_F_RDWR,
+                         U32.class, U8.class);
+             } catch (ErrnoException e) {
+-                Log.wtf(TAG, "Cannot open uid counter set map: " + e);
++                Log.w(TAG, "Cannot open uid counter set map: " + e);
+                 return null;
+             }
+         }
+@@ -731,7 +731,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+                 return new BpfMap<CookieTagMapKey, CookieTagMapValue>(COOKIE_TAG_MAP_PATH,
+                         BpfMap.BPF_F_RDWR, CookieTagMapKey.class, CookieTagMapValue.class);
+             } catch (ErrnoException e) {
+-                Log.wtf(TAG, "Cannot open cookie tag map: " + e);
++                Log.w(TAG, "Cannot open cookie tag map: " + e);
+                 return null;
+             }
+         }
+@@ -742,7 +742,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+                 return new BpfMap<StatsMapKey, StatsMapValue>(STATS_MAP_A_PATH,
+                         BpfMap.BPF_F_RDWR, StatsMapKey.class, StatsMapValue.class);
+             } catch (ErrnoException e) {
+-                Log.wtf(TAG, "Cannot open stats map A: " + e);
++                Log.w(TAG, "Cannot open stats map A: " + e);
+                 return null;
+             }
+         }
+@@ -753,7 +753,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+                 return new BpfMap<StatsMapKey, StatsMapValue>(STATS_MAP_B_PATH,
+                         BpfMap.BPF_F_RDWR, StatsMapKey.class, StatsMapValue.class);
+             } catch (ErrnoException e) {
+-                Log.wtf(TAG, "Cannot open stats map B: " + e);
++                Log.w(TAG, "Cannot open stats map B: " + e);
+                 return null;
+             }
+         }
+@@ -764,7 +764,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+                 return new BpfMap<UidStatsMapKey, StatsMapValue>(APP_UID_STATS_MAP_PATH,
+                         BpfMap.BPF_F_RDWR, UidStatsMapKey.class, StatsMapValue.class);
+             } catch (ErrnoException e) {
+-                Log.wtf(TAG, "Cannot open app uid stats map: " + e);
++                Log.w(TAG, "Cannot open app uid stats map: " + e);
+                 return null;
+             }
+         }
+@@ -1709,7 +1709,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+ 
+     private void setKernelCounterSet(int uid, int set) {
+         if (mUidCounterSetMap == null) {
+-            Log.wtf(TAG, "Fail to set UidCounterSet: Null bpf map");
++            Log.w(TAG, "Skipping UidCounterSet update: BPF map unavailable");
+             return;
+         }
+ 
+@@ -2401,6 +2401,8 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+ 
+     private <K extends StatsMapKey, V extends StatsMapValue> void deleteStatsMapTagData(
+             IBpfMap<K, V> statsMap, int uid) {
++        if (statsMap == null) return;
++
+         try {
+             statsMap.forEach((key, value) -> {
+                 if (key.uid == uid) {
+@@ -2421,39 +2423,46 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
+      * @param uid
+      */
+     private void deleteKernelTagData(int uid) {
+-        try {
+-            mCookieTagMap.forEach((key, value) -> {
+-                // If SkDestroyListener deletes the socket tag while this code is running,
+-                // forEach will either restart iteration from the beginning or return null,
+-                // depending on when the deletion happens.
+-                // If it returns null, continue iteration to delete the data and in fact it would
+-                // just iterate from first key because BpfMap#getNextKey would return first key
+-                // if the current key is not exist.
+-                if (value != null && value.uid == uid) {
+-                    try {
+-                        mCookieTagMap.deleteEntry(key);
+-                    } catch (ErrnoException e) {
+-                        logErrorIfNotErrNoent(e, "Failed to delete data(cookie = " + key + ")");
++        if (mCookieTagMap != null) {
++            try {
++                mCookieTagMap.forEach((key, value) -> {
++                    // If SkDestroyListener deletes the socket tag while this code is running,
++                    // forEach will either restart iteration from the beginning or return null,
++                    // depending on when the deletion happens.
++                    // If it returns null, continue iteration to delete the data and in fact it
++                    // would just iterate from first key because BpfMap#getNextKey would return
++                    // first key if the current key is not exist.
++                    if (value != null && value.uid == uid) {
++                        try {
++                            mCookieTagMap.deleteEntry(key);
++                        } catch (ErrnoException e) {
++                            logErrorIfNotErrNoent(e,
++                                    "Failed to delete data(cookie = " + key + ")");
++                        }
+                     }
+-                }
+-            });
+-        } catch (ErrnoException e) {
+-            Log.e(TAG, "Failed to delete tag data from cookie tag map", e);
++                });
++            } catch (ErrnoException e) {
++                Log.e(TAG, "Failed to delete tag data from cookie tag map", e);
++            }
+         }
+ 
+         deleteStatsMapTagData(mStatsMapA, uid);
+         deleteStatsMapTagData(mStatsMapB, uid);
+ 
+-        try {
+-            mUidCounterSetMap.deleteEntry(new U32(uid));
+-        } catch (ErrnoException e) {
+-            logErrorIfNotErrNoent(e, "Failed to delete tag data from uid counter set map");
++        if (mUidCounterSetMap != null) {
++            try {
++                mUidCounterSetMap.deleteEntry(new U32(uid));
++            } catch (ErrnoException e) {
++                logErrorIfNotErrNoent(e, "Failed to delete tag data from uid counter set map");
++            }
+         }
+ 
+-        try {
+-            mAppUidStatsMap.deleteEntry(new UidStatsMapKey(uid));
+-        } catch (ErrnoException e) {
+-            logErrorIfNotErrNoent(e, "Failed to delete tag data from app uid stats map");
++        if (mAppUidStatsMap != null) {
++            try {
++                mAppUidStatsMap.deleteEntry(new UidStatsMapKey(uid));
++            } catch (ErrnoException e) {
++                logErrorIfNotErrNoent(e, "Failed to delete tag data from app uid stats map");
++            }
+         }
+     }
+ 
+diff --git a/service/jni/com_android_server_BpfNetMaps.cpp b/service/jni/com_android_server_BpfNetMaps.cpp
+index 7b1f59ca2..7e9d1f6ce 100644
+--- a/service/jni/com_android_server_BpfNetMaps.cpp
++++ b/service/jni/com_android_server_BpfNetMaps.cpp
+@@ -36,17 +36,27 @@ using UidOwnerMatchType::PENALTY_BOX_MATCH;
+ using UidOwnerMatchType::HAPPY_BOX_MATCH;
+ 
+ static android::net::TrafficController mTc;
++static bool mTcStarted = false;
+ 
+ namespace android {
+ 
++static bool isTrafficControllerStarted(const char* caller) {
++  if (mTcStarted) return true;
++  ALOGW("%s skipped; TrafficController is unavailable", caller);
++  return false;
++}
++
+ static void native_init(JNIEnv* env, jobject clazz) {
+   Status status = mTc.start();
+    if (!isOk(status)) {
+     ALOGE("%s failed, error code = %d", __func__, status.code());
++    return;
+   }
++  mTcStarted = true;
+ }
+ 
+ static jint native_addNaughtyApp(JNIEnv* env, jobject clazz, jint uid) {
++  if (!isTrafficControllerStarted(__func__)) return 0;
+   const uint32_t appUids = static_cast<uint32_t>(abs(uid));
+   Status status = mTc.updateUidOwnerMap(appUids, PENALTY_BOX_MATCH,
+       TrafficController::IptOp::IptOpInsert);
+@@ -57,6 +67,7 @@ static jint native_addNaughtyApp(JNIEnv* env, jobject clazz, jint uid) {
+ }
+ 
+ static jint native_removeNaughtyApp(JNIEnv* env, jobject clazz, jint uid) {
++  if (!isTrafficControllerStarted(__func__)) return 0;
+   const uint32_t appUids = static_cast<uint32_t>(abs(uid));
+   Status status = mTc.updateUidOwnerMap(appUids, PENALTY_BOX_MATCH,
+       TrafficController::IptOp::IptOpDelete);
+@@ -67,6 +78,7 @@ static jint native_removeNaughtyApp(JNIEnv* env, jobject clazz, jint uid) {
+ }
+ 
+ static jint native_addNiceApp(JNIEnv* env, jobject clazz, jint uid) {
++  if (!isTrafficControllerStarted(__func__)) return 0;
+   const uint32_t appUids = static_cast<uint32_t>(abs(uid));
+   Status status = mTc.updateUidOwnerMap(appUids, HAPPY_BOX_MATCH,
+       TrafficController::IptOp::IptOpInsert);
+@@ -77,6 +89,7 @@ static jint native_addNiceApp(JNIEnv* env, jobject clazz, jint uid) {
+ }
+ 
+ static jint native_removeNiceApp(JNIEnv* env, jobject clazz, jint uid) {
++  if (!isTrafficControllerStarted(__func__)) return 0;
+   const uint32_t appUids = static_cast<uint32_t>(abs(uid));
+   Status status = mTc.updateUidOwnerMap(appUids, HAPPY_BOX_MATCH,
+       TrafficController::IptOp::IptOpDelete);
+@@ -87,6 +100,7 @@ static jint native_removeNiceApp(JNIEnv* env, jobject clazz, jint uid) {
+ }
+ 
+ static jint native_setChildChain(JNIEnv* env, jobject clazz, jint childChain, jboolean enable) {
++  if (!isTrafficControllerStarted(__func__)) return 0;
+   auto chain = static_cast<ChildChain>(childChain);
+   int res = mTc.toggleUidOwnerMap(chain, enable);
+   if (res) {
+@@ -97,6 +111,7 @@ static jint native_setChildChain(JNIEnv* env, jobject clazz, jint childChain, jb
+ 
+ static jint native_replaceUidChain(JNIEnv* env, jobject clazz, jstring name, jboolean isAllowlist,
+                                 jintArray jUids) {
++    if (!isTrafficControllerStarted(__func__)) return 0;
+     const ScopedUtfChars chainNameUtf8(env, name);
+     if (chainNameUtf8.c_str() == nullptr) {
+         return -EINVAL;
+@@ -120,6 +135,7 @@ static jint native_replaceUidChain(JNIEnv* env, jobject clazz, jstring name, jbo
+ 
+ static jint native_setUidRule(JNIEnv* env, jobject clazz, jint childChain, jint uid,
+                           jint firewallRule) {
++    if (!isTrafficControllerStarted(__func__)) return 0;
+     auto chain = static_cast<ChildChain>(childChain);
+     auto rule = static_cast<FirewallRule>(firewallRule);
+     FirewallType fType = mTc.getFirewallType(chain);
+@@ -133,6 +149,7 @@ static jint native_setUidRule(JNIEnv* env, jobject clazz, jint childChain, jint
+ 
+ static jint native_addUidInterfaceRules(JNIEnv* env, jobject clazz, jstring ifName,
+                                     jintArray jUids) {
++    if (!isTrafficControllerStarted(__func__)) return 0;
+     // Null ifName is a wildcard to allow apps to receive packets on all interfaces and ifIndex is
+     // set to 0.
+     int ifIndex;
+@@ -160,6 +177,7 @@ static jint native_addUidInterfaceRules(JNIEnv* env, jobject clazz, jstring ifNa
+ }
+ 
+ static jint native_removeUidInterfaceRules(JNIEnv* env, jobject clazz, jintArray jUids) {
++    if (!isTrafficControllerStarted(__func__)) return 0;
+     ScopedIntArrayRO uids(env, jUids);
+     if (uids.get() == nullptr) {
+         return -EINVAL;
+@@ -176,6 +194,7 @@ static jint native_removeUidInterfaceRules(JNIEnv* env, jobject clazz, jintArray
+ }
+ 
+ static jint native_swapActiveStatsMap(JNIEnv* env, jobject clazz) {
++    if (!isTrafficControllerStarted(__func__)) return 0;
+     Status status = mTc.swapActiveStatsMap();
+     if (!isOk(status)) {
+         ALOGD("%s failed, error code = %d", __func__, status.code());
+@@ -185,6 +204,7 @@ static jint native_swapActiveStatsMap(JNIEnv* env, jobject clazz) {
+ 
+ static void native_setPermissionForUids(JNIEnv* env, jobject clazz, jint permission,
+                                       jintArray jUids) {
++    if (!isTrafficControllerStarted(__func__)) return;
+     ScopedIntArrayRO uids(env, jUids);
+     if (uids.get() == nullptr) return;
+ 
+@@ -195,6 +215,7 @@ static void native_setPermissionForUids(JNIEnv* env, jobject clazz, jint permiss
+ }
+ 
+ static void native_dump(JNIEnv* env, jobject clazz, jobject javaFd, jboolean verbose) {
++    if (!isTrafficControllerStarted(__func__)) return;
+     int fd = netjniutils::GetNativeFileDescriptor(env, javaFd);
+     if (fd < 0) {
+         jniThrowExceptionFmt(env, "java/io/IOException", "Invalid file descriptor");
+diff --git a/tests/unit/java/com/android/server/net/NetworkStatsServiceTest.java b/tests/unit/java/com/android/server/net/NetworkStatsServiceTest.java
+index e03b4fe19..cd7d7992f 100644
+--- a/tests/unit/java/com/android/server/net/NetworkStatsServiceTest.java
++++ b/tests/unit/java/com/android/server/net/NetworkStatsServiceTest.java
+@@ -149,6 +149,7 @@ import com.android.testutils.TestableNetworkStatsProviderBinder;
+ 
+ import java.io.File;
+ import java.io.IOException;
++import java.lang.reflect.Field;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.time.Clock;
+@@ -2304,6 +2305,12 @@ public class NetworkStatsServiceTest extends NetworkStatsBaseTest {
+         assertTrue(mUidCounterSetMap.containsKey(new U32(uid)));
+     }
+ 
++    private void clearServiceBpfMapForTest(String fieldName) throws Exception {
++        final Field field = NetworkStatsService.class.getDeclaredField(fieldName);
++        field.setAccessible(true);
++        field.set(mService, null);
++    }
++
+     @Test
+     public void testRemovingUidRemovesTagDataForUid() throws ErrnoException {
+         initBpfMapsWithTagData(UID_BLUE);
+@@ -2327,4 +2334,17 @@ public class NetworkStatsServiceTest extends NetworkStatsBaseTest {
+         assertTrue(mAppUidStatsMap.containsKey(new UidStatsMapKey(UID_RED)));
+         assertTrue(mUidCounterSetMap.containsKey(new U32(UID_RED)));
+     }
++
++    @Test
++    public void testRemovingUidWithUnavailableBpfMapsDoesNotCrash() throws Exception {
++        clearServiceBpfMapForTest("mCookieTagMap");
++        clearServiceBpfMapForTest("mStatsMapA");
++        clearServiceBpfMapForTest("mStatsMapB");
++        clearServiceBpfMapForTest("mUidCounterSetMap");
++        clearServiceBpfMapForTest("mAppUidStatsMap");
++
++        final Intent intent = new Intent(ACTION_UID_REMOVED);
++        intent.putExtra(EXTRA_UID, UID_BLUE);
++        mServiceContext.sendBroadcast(intent);
++    }
+ }

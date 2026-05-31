@@ -1,0 +1,210 @@
+diff --git a/core/java/android/view/ViewRootImpl.java b/core/java/android/view/ViewRootImpl.java
+index f6211fd488d8..e0879084c651 100644
+--- a/core/java/android/view/ViewRootImpl.java
++++ b/core/java/android/view/ViewRootImpl.java
+@@ -6789,7 +6789,7 @@ public final class ViewRootImpl implements ViewParent,
+         }
+ 
+         private void maybeUpdatePointerIcon(MotionEvent event) {
+-            if (event.getPointerCount() == 1 && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
++            if (event.getPointerCount() == 1 && isPointerIconSource(event)) {
+                 if (event.getActionMasked() == MotionEvent.ACTION_HOVER_ENTER
+                         || event.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT) {
+                     // Other apps or the window manager may change the icon type outside of
+@@ -6806,6 +6806,12 @@ public final class ViewRootImpl implements ViewParent,
+             }
+         }
+ 
++        private boolean isPointerIconSource(MotionEvent event) {
++            return event.isFromSource(InputDevice.SOURCE_MOUSE)
++                    || event.isFromSource(InputDevice.SOURCE_STYLUS)
++                    || isStylusToolType(event, 0);
++        }
++
+         private int processTrackballEvent(QueuedInputEvent q) {
+             final MotionEvent event = (MotionEvent)q.mEvent;
+ 
+@@ -6877,6 +6883,12 @@ public final class ViewRootImpl implements ViewParent,
+         return true;
+     }
+ 
++    private boolean isStylusToolType(MotionEvent event, int pointerIndex) {
++        final int toolType = event.getToolType(pointerIndex);
++        return toolType == MotionEvent.TOOL_TYPE_STYLUS
++                || toolType == MotionEvent.TOOL_TYPE_ERASER;
++    }
++
+     private void maybeUpdateTooltip(MotionEvent event) {
+         if (event.getPointerCount() != 1) {
+             return;
+diff --git a/core/res/res/drawable-mdpi/pointer_crosshair.png b/core/res/res/drawable-mdpi/pointer_crosshair.png
+index 8a06c773de7eeac597f105f40e410bd0c7df6d02..955023055baac1a0b7f54fd1485e97528625f11d 100644
+GIT binary patch
+literal 311
+zcmeAS@N?(olHy`uVBq!ia0vp^k|4~%0wnVu_`U#AEa{HEjtmSN`?>!lvI6-E$sR$z
+z3=CCj3=9n|3=F@3LJdH5r3MTPuM!v-tY$DUh!@P+6=(yLU`q0KcVYP7-hXC4kjGx)
+z>Fdh=id9yC+j66S!cm}*y{C&~h{fsT1PRu|l7FWE-T&tQ|Np1|ofcZp$k=iDOTFZz
+zX{j?l^+as>;~v<su!*zV^mO5dm9NB&oN`2XfUY=n%lzF_<^94yqf|>=BT7;dOH!?p
+zi&B9UgOP!enXZAUu90Pkp_!GTp_Qq*wt<0_fx&ghsd*?Ga`RI%(<*UmSSF);38;a=
+M)78&qol`;+0O#Ibng9R*
+
+delta 71
+zcmdnalsZAhQODE8F{FYq`G>!ejAoP+N5;V^5}i>}2^$z!uu49<&}7}?&OB2>_lnn_
+a#Ze4_q1AfFXX?c<0D-5gpUXO@geCxRY8Z$B
+
+diff --git a/core/res/res/drawable-mdpi/pointer_crosshair_large.png b/core/res/res/drawable-mdpi/pointer_crosshair_large.png
+index ea1f5fc07ff7f9239882c99576eac217e8e32b84..a6c246fb7087c5d09b9aa499d17397095d498a8b 100644
+GIT binary patch
+literal 327
+zcmeAS@N?(olHy`uVBq!ia0vp^4j|0I0wfs{c7_5;mUKs7M+SzC{oH>NS%G|oWRD<U
+z28Jp%28M<f28Lfip@tU>45bDP46hOx7_4S6Fo+k-*%fF5lweBoc6VX;-`;;_Kaj^>
+z;_2(k{)$yrKv<&Q_QfHfkiVykV@Srmx0e?RHaPIGI4tPTx1Un!;gAqFq48#D;B?`W
+zn}Di5#7eGInR;>Szbk=?rJ4bsEnk;3-bq?kyzS+y--rK9`zD?7p9!e!M=$gCnda}L
+zKTLcC<f)dpMwFx^mZVxG7o`Fz1|tI_GhG8yT_ej7Lo+KwODiK2Z36=<1B3s&kIA8E
+c$jwj5OsmALq3>DUBA^BaPgg&ebxsLQ0N_GqVE_OC
+
+delta 136
+zcmX@kw1jbjN`1Dci(^Pd+}oRmTn7|*90Jczw60Fe7Tn(CB|822eCG3t!9hD^7#I$0
+z&)Ouk_0P0t_v0Ld-?K8nfs5|>YmC~wj4S8xEI1;tA?W|rQ$40OjBxpm?1pRd4U>6+
+aMlc^X{v)LHTzmmY($m$?Wt~$3V-o;qMJ}iS
+
+diff --git a/core/res/res/drawable-xhdpi/pointer_crosshair.png b/core/res/res/drawable-xhdpi/pointer_crosshair.png
+index 86c649c1a1bc03e808d317b55068a5b5fdec22b0..492663d7f46e921dba3909c9a202ab00857a1309 100644
+GIT binary patch
+literal 409
+zcmeAS@N?(olHy`uVBq!ia0vp^Mj*_=0wlMXIamQHmUKs7M+SzC{oH>NS%G|oWRD<U
+z28Jp%28M<f28Lfip@tU>45bDP46hOx7_4S6Fo+k-*%fF5lweBoc6VX;-`;;_Kaj^>
+z;_2(k{)$yrfZKATf5K6q&_Yia$B>A_Z?6P$9WoGTc^H|0vFTFul}DK(EpgVmq96H;
+z>^xnCJqtcRsac=-BX}FHf|8Pwwsz%=HZf}f#_;5+p9>zGS>9UPdt~B!xA#Zp8P3ah
+zPVR8i)0y@1yT|D%YU%&gR&VlMS5h}|%kKCTuXSha<%(P%i_G;Xkg++i@0U6cgH64P
+z-#Jc(2M2DSmM=PSKeEcv>_q}cgjVbXpiT7;7*D=E!7%0E+G?O<RZCnWN>UO_QmvAU
+zQh^kMk%5t!u7Rnpk!6UXnU$fTm8rS5fq|8Q!F9)}c_<ok^HVa@DsgLACZl@^sDZ)L
+L)z4*}Q$iB}*qMk5
+
+delta 115
+zcmbQqJb`h7N=~?^i(^Pd+}mp#c^MQq7#yD^q^G;_tQDEjaQ3(A(LjmCHyjjzV3KTb
+ze&ya1lG6nR1Oz5jEY4${6zX#1)meoomrY5Jb54oYIXgHwY?18TSGU6v$TC~(yywEp
+Ssb=L2K;Y@>=d#Wzp$PyEpDfV;
+
+diff --git a/core/res/res/drawable-xhdpi/pointer_crosshair_large.png b/core/res/res/drawable-xhdpi/pointer_crosshair_large.png
+index d5f4502c9d8971d0cc5d87396f8225e36404d34f..f61793686f9daa5c8bf19f2b9af74ef02c248035 100644
+GIT binary patch
+literal 446
+zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H0wgodS2_SGmUKs7M+SzC{oH>NS%G|oWRD<U
+z28Jp%pt=?YhF?ITh8GMBr3MTPuM!v-tY$DUh!@P+6=(yLU`q0KcVYP7-hXC4kjGx)
+z>Fdh=id9xXSfbwc#UY^3F;5rAkcwMxui1LBI0~>n2>ZaY`OVos$F+InP8{KW+ci;K
+z@Zgh~oR7*BoJ4os7Z1C%UheMU9!8)}1lT`CHTzrT>EL&p-}(jb|ChRN*9*Up-TzAW
+zS<mCz^kl=b_JXLoM|V@|E(bg8wDHe7uuuKGXC>qN$2mevZB9$b`agKu{<%K<z~hvE
+z7l0~q)bBU=mT%g{wT^F1{q4D{wl#fT{FnFFnuN)wyZ59`H}x);LRbxAHQ2vrKA*7e
+zZMPzy8IY@5;u=wsl30>zm0Xkxq!^40jLdWmOm&ScLk!KV3@xpUOtcLQtPBkP?>;7n
+dq9HdwB{QuOw}!rFb&EhYdb;|#taD0e0syu-nkE1M
+
+literal 507
+zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H1|$#LC7uRSk|nMYCBgY=CFO}lsSJ)O`AMk?
+zp1FzXsX?iUDV2pMQ*9U+80UJrIEGZ*dUN+6Z<B#ULtyrfT?~0IS#%aepJL(*sDALk
+zvBf3n@9Aps<fJLr&PVB+KApq==K4hu4hBXA29^c}0R|=q1_;Mt_b%P}I!i_Jn2OFF
+zJ`>T#bzR81!6Couf6@0Z&lLH!9Uh-j|6?b7{Hz=UBf4G`g9vjP=HLFa<igI)<^RvD
+zoLIO=DvRxc|Kx31MbR8j&fBb7&rqEH-Yxi8VQ0zS`}1;h_!ERX7;dcHa&dpim$h#g
+z7iqq~zw=H{7{jZ7Tr<3Sw%m^Yb$r5VhHKKxJ$pCheDmJF`gFuGuIs5lO-Q~Y>?jmp
+zIWR19V0aU8>r=rY4|dl&3(YSvk0+dXxpghWpRn!M8{MsMTO0{zFl)pTj$oS>>|4&j
+Z%)q7*sCjs`#T^D9@O1TaS?83{1OU+_q67c{
+
+diff --git a/core/res/res/drawable/pointer_arrow_icon.xml b/core/res/res/drawable/pointer_arrow_icon.xml
+index 72af0c11f50c..3b96a8ad3ace 100644
+--- a/core/res/res/drawable/pointer_arrow_icon.xml
++++ b/core/res/res/drawable/pointer_arrow_icon.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <pointer-icon xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:bitmap="@drawable/pointer_arrow"
+-    android:hotSpotX="5dp"
+-    android:hotSpotY="5dp" />
++    android:bitmap="@drawable/pointer_crosshair"
++    android:hotSpotX="12dp"
++    android:hotSpotY="12dp" />
+diff --git a/core/res/res/drawable/pointer_arrow_large_icon.xml b/core/res/res/drawable/pointer_arrow_large_icon.xml
+index 22c7bfebf951..6a71b7b638f3 100644
+--- a/core/res/res/drawable/pointer_arrow_large_icon.xml
++++ b/core/res/res/drawable/pointer_arrow_large_icon.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <pointer-icon xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:bitmap="@drawable/pointer_arrow_large"
+-    android:hotSpotX="10dp"
+-    android:hotSpotY="10dp" />
++    android:bitmap="@drawable/pointer_crosshair_large"
++    android:hotSpotX="31dp"
++    android:hotSpotY="30dp" />
+diff --git a/services/core/java/com/android/server/input/InputManagerService.java b/services/core/java/com/android/server/input/InputManagerService.java
+index b7adf3850b55..58dcba2bffd1 100644
+--- a/services/core/java/com/android/server/input/InputManagerService.java
++++ b/services/core/java/com/android/server/input/InputManagerService.java
+@@ -2377,7 +2377,7 @@ public class InputManagerService extends IInputManager.Stub
+         }
+         synchronized (mAdditionalDisplayInputPropertiesLock) {
+             mIcon = null;
+-            mIconType = iconType;
++            mIconType = PointerIcon.TYPE_CROSSHAIR;
+ 
+             if (!mCurrentDisplayProperties.pointerIconVisible) return;
+ 
+@@ -2390,12 +2390,12 @@ public class InputManagerService extends IInputManager.Stub
+     public void setCustomPointerIcon(PointerIcon icon) {
+         Objects.requireNonNull(icon);
+         synchronized (mAdditionalDisplayInputPropertiesLock) {
+-            mIconType = PointerIcon.TYPE_CUSTOM;
+-            mIcon = icon;
++            mIconType = PointerIcon.TYPE_CROSSHAIR;
++            mIcon = null;
+ 
+             if (!mCurrentDisplayProperties.pointerIconVisible) return;
+ 
+-            mNative.setCustomPointerIcon(mIcon);
++            mNative.setPointerIconType(mIconType);
+         }
+     }
+ 
+@@ -3232,7 +3232,8 @@ public class InputManagerService extends IInputManager.Stub
+     // Native callback.
+     @SuppressWarnings("unused")
+     private PointerIcon getPointerIcon(int displayId) {
+-        return PointerIcon.getDefaultIcon(getContextForPointerIcon(displayId));
++        return PointerIcon.getSystemIcon(getContextForPointerIcon(displayId),
++                PointerIcon.TYPE_CROSSHAIR);
+     }
+ 
+     // Native callback.
+diff --git a/services/core/java/com/android/server/pm/ModuleInfoProvider.java b/services/core/java/com/android/server/pm/ModuleInfoProvider.java
+index 230f5558b37d..a54049b614ed 100644
+--- a/services/core/java/com/android/server/pm/ModuleInfoProvider.java
++++ b/services/core/java/com/android/server/pm/ModuleInfoProvider.java
+@@ -183,7 +183,8 @@ public class ModuleInfoProvider {
+      */
+     List<ModuleInfo> getInstalledModules(@PackageManager.InstalledModulesFlags int flags) {
+         if (!mMetadataLoaded) {
+-            throw new IllegalStateException("Call to getInstalledModules before metadata loaded");
++            Slog.w(TAG, "Module metadata not loaded yet; returning no installed modules");
++            return Collections.emptyList();
+         }
+ 
+         if ((flags & PackageManager.MATCH_ALL) != 0) {
+@@ -211,7 +212,8 @@ public class ModuleInfoProvider {
+ 
+     ModuleInfo getModuleInfo(String name, @PackageManager.ModuleInfoFlags int flags) {
+         if (!mMetadataLoaded) {
+-            throw new IllegalStateException("Call to getModuleInfo before metadata loaded");
++            Slog.w(TAG, "Module metadata not loaded yet; no module info for " + name);
++            return null;
+         }
+         if ((flags & PackageManager.MODULE_APEX_NAME) != 0) {
+             for (ModuleInfo moduleInfo : mModuleInfo.values()) {
+@@ -226,7 +228,8 @@ public class ModuleInfoProvider {
+ 
+     String getPackageName() {
+         if (!mMetadataLoaded) {
+-            throw new IllegalStateException("Call to getVersion before metadata loaded");
++            Slog.w(TAG, "Module metadata not loaded yet; no package name");
++            return null;
+         }
+         return mPackageName;
+     }
