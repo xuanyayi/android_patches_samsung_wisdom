@@ -15,10 +15,10 @@ apply_patch() {
     return 1
   fi
 
-  if git -C "${project_dir}" apply --check "${patch_file}"; then
+  if git -C "${project_dir}" apply --check "${patch_file}" >/dev/null 2>&1; then
     git -C "${project_dir}" apply "${patch_file}"
     echo "applied ${patch}"
-  elif git -C "${project_dir}" apply --reverse --check "${patch_file}"; then
+  elif git -C "${project_dir}" apply --reverse --check "${patch_file}" >/dev/null 2>&1; then
     echo "already applied ${patch}"
   else
     echo "failed to apply ${patch}" >&2
@@ -39,6 +39,7 @@ apply_patch packages/modules/Connectivity packages_modules_Connectivity.patch
 apply_patch system/apex system_apex.patch
 apply_patch system/bpf system_bpf.patch
 apply_patch system/core system_core.patch
+apply_patch system/memory/libmeminfo system_memory_libmeminfo.patch
 apply_patch system/netd system_netd.patch
 apply_patch vendor/apn vendor_apn.patch
 apply_patch vendor/lineage vendor_lineage.patch

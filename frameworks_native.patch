@@ -78,17 +78,13 @@ index e7d935082a..54f17da130 100644
 \ No newline at end of file
 +#endif // _UI_INPUTREADER_MULTI_TOUCH_INPUT_MAPPER_H
 diff --git a/services/inputflinger/reader/mapper/TouchInputMapper.cpp b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
-index 5a7016780a..361816f8d0 100644
+index 5a7016780a..7102a1dcd7 100644
 --- a/services/inputflinger/reader/mapper/TouchInputMapper.cpp
 +++ b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
-@@ -71,6 +71,21 @@ inline static int32_t signExtendNybble(int32_t value) {
+@@ -71,6 +71,17 @@ inline static int32_t signExtendNybble(int32_t value) {
      return value >= 8 ? value - 16 : value;
  }
  
-+static bool isStylusPrimaryButton(int32_t buttonState) {
-+    return (buttonState & AMOTION_EVENT_BUTTON_STYLUS_PRIMARY) != 0;
-+}
-+
 +static bool isStylusPointerToolType(int32_t toolType) {
 +    return toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
 +            toolType == AMOTION_EVENT_TOOL_TYPE_ERASER;
@@ -103,7 +99,7 @@ index 5a7016780a..361816f8d0 100644
  // --- RawPointerAxes ---
  
  RawPointerAxes::RawPointerAxes() {
-@@ -1046,6 +1061,7 @@ void TouchInputMapper::configureInputDevice(nsecs_t when, bool* outResetNeeded)
+@@ -1046,6 +1057,7 @@ void TouchInputMapper::configureInputDevice(nsecs_t when, bool* outResetNeeded)
      // preserve the cursor position.
      if (mDeviceMode == DeviceMode::POINTER ||
          (mDeviceMode == DeviceMode::DIRECT && mConfig.showTouches) ||
@@ -111,7 +107,7 @@ index 5a7016780a..361816f8d0 100644
          (mParameters.deviceType == Parameters::DeviceType::POINTER &&
           mConfig.pointerCaptureRequest.enable)) {
          if (mPointerController == nullptr) {
-@@ -1612,6 +1628,10 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+@@ -1612,6 +1624,10 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
      // Apply stylus pressure to current cooked state.
      applyExternalStylusTouchState(when);
  
@@ -122,7 +118,7 @@ index 5a7016780a..361816f8d0 100644
      // Synthesize key down from raw buttons if needed.
      synthesizeButtonKeys(getContext(), AKEY_EVENT_ACTION_DOWN, when, readTime, getDeviceId(),
                           mSource, mViewport.displayId, policyFlags, mLastCookedState.buttonState,
-@@ -1623,8 +1643,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+@@ -1623,8 +1639,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
              uint32_t id = idBits.clearFirstMarkedBit();
              const RawPointerData::Pointer& pointer =
                      mCurrentRawState.rawPointerData.pointerForId(id);
@@ -132,7 +128,7 @@ index 5a7016780a..361816f8d0 100644
                  mCurrentCookedState.stylusIdBits.markBit(id);
              } else if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER ||
                         pointer.toolType == AMOTION_EVENT_TOOL_TYPE_UNKNOWN) {
-@@ -1637,8 +1656,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+@@ -1637,8 +1652,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
              uint32_t id = idBits.clearFirstMarkedBit();
              const RawPointerData::Pointer& pointer =
                      mCurrentRawState.rawPointerData.pointerForId(id);
@@ -142,7 +138,7 @@ index 5a7016780a..361816f8d0 100644
                  mCurrentCookedState.stylusIdBits.markBit(id);
              }
          }
-@@ -2057,7 +2075,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
+@@ -2057,7 +2071,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
          int32_t metaState = getContext()->getGlobalMetaState();
          if (!mSentHoverEnter) {
              dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_ENTER,
@@ -151,7 +147,7 @@ index 5a7016780a..361816f8d0 100644
                             mCurrentCookedState.cookedPointerData.pointerProperties,
                             mCurrentCookedState.cookedPointerData.pointerCoords,
                             mCurrentCookedState.cookedPointerData.idToIndex,
-@@ -2067,7 +2085,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
+@@ -2067,7 +2081,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
          }
  
          dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_MOVE, 0, 0,
@@ -160,19 +156,7 @@ index 5a7016780a..361816f8d0 100644
                         mCurrentCookedState.cookedPointerData.pointerProperties,
                         mCurrentCookedState.cookedPointerData.pointerCoords,
                         mCurrentCookedState.cookedPointerData.idToIndex,
-@@ -2381,7 +2399,10 @@ void TouchInputMapper::cookPointerData() {
-         PointerProperties& properties = mCurrentCookedState.cookedPointerData.pointerProperties[i];
-         properties.clear();
-         properties.id = id;
--        properties.toolType = in.toolType;
-+        properties.toolType = isStylusPrimaryButton(mCurrentCookedState.buttonState) &&
-+                isStylusPointerToolType(in.toolType)
-+                ? AMOTION_EVENT_TOOL_TYPE_ERASER
-+                : in.toolType;
- 
-         // Write id index and mark id as valid.
-         mCurrentCookedState.cookedPointerData.idToIndex[id] = i;
-@@ -2389,6 +2410,49 @@ void TouchInputMapper::cookPointerData() {
+@@ -2389,6 +2403,49 @@ void TouchInputMapper::cookPointerData() {
      }
  }
  
@@ -222,7 +206,7 @@ index 5a7016780a..361816f8d0 100644
  void TouchInputMapper::dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
                                              PointerUsage pointerUsage) {
      if (pointerUsage != mPointerUsage) {
-@@ -3723,6 +3787,16 @@ void TouchInputMapper::dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t p
+@@ -3723,6 +3780,16 @@ void TouchInputMapper::dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t p
      float yCursorPosition = AMOTION_EVENT_INVALID_CURSOR_POSITION;
      if (mDeviceMode == DeviceMode::POINTER) {
          mPointerController->getPosition(&xCursorPosition, &yCursorPosition);
