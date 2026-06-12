@@ -1,0 +1,57 @@
+diff --git a/res/values/config.xml b/res/values/config.xml
+index adfcaa4..7daebbd 100644
+--- a/res/values/config.xml
++++ b/res/values/config.xml
+@@ -27,4 +27,7 @@
+              (true for some tablets) -->
+     <integer name="config_volumeRockerVsDisplayOrientation">1</integer>
+ 
++    <!-- Whether to show the Volume Down + Power partial screenshot toggle. -->
++    <bool name="config_showClickPartialScreenshot">true</bool>
++
+ </resources>
+diff --git a/res/xml/power_menu_settings.xml b/res/xml/power_menu_settings.xml
+index fc45ade..3393672 100644
+--- a/res/xml/power_menu_settings.xml
++++ b/res/xml/power_menu_settings.xml
+@@ -15,7 +15,6 @@
+         <CheckBoxPreference
+             android:key="screenshot"
+             android:title="@string/power_menu_screenshot_title"
+-            android:summary="@string/power_menu_screenshot_summary"
+             android:defaultValue="false" />
+ 
+         <CheckBoxPreference
+diff --git a/src/org/lineageos/lineageparts/input/ButtonSettings.java b/src/org/lineageos/lineageparts/input/ButtonSettings.java
+index 1a54349..c716e97 100644
+--- a/src/org/lineageos/lineageparts/input/ButtonSettings.java
++++ b/src/org/lineageos/lineageparts/input/ButtonSettings.java
+@@ -386,6 +386,8 @@ public class ButtonSettings extends SettingsPreferenceFragment
+             prefScreen.removePreference(cameraCategory);
+         }
+ 
++        final boolean showClickPartialScreenshot =
++                res.getBoolean(R.bool.config_showClickPartialScreenshot);
+         if (hasVolumeKeys) {
+             if (!showVolumeWake) {
+                 volumeCategory.removePreference(findPreference(KEY_VOLUME_WAKE_SCREEN));
+@@ -413,7 +415,8 @@ public class ButtonSettings extends SettingsPreferenceFragment
+             if (mVolumePanelOnLeft != null) {
+                 mVolumePanelOnLeft.setChecked(volumePanelOnLeft);
+             }
+-        } else {
++        }
++        if (!hasVolumeKeys || !showClickPartialScreenshot) {
+             extrasCategory.removePreference(findPreference(KEY_CLICK_PARTIAL_SCREENSHOT));
+         }
+         if (!hasVolumeKeys || volumeCategory.getPreferenceCount() == 0) {
+@@ -969,6 +972,9 @@ public class ButtonSettings extends SettingsPreferenceFragment
+             } else if (!DeviceUtils.canWakeUsingVolumeKeys(context)) {
+                 result.add(KEY_VOLUME_WAKE_SCREEN);
+             }
++            if (!context.getResources().getBoolean(R.bool.config_showClickPartialScreenshot)) {
++                result.add(KEY_CLICK_PARTIAL_SCREENSHOT);
++            }
+ 
+             if (!DeviceUtils.deviceSupportsFlashLight(context)) {
+                 result.add(KEY_TORCH_LONG_PRESS_POWER_GESTURE);

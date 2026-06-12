@@ -34,6 +34,7 @@ apply_patch hardware/interfaces hardware_interfaces.patch
 apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
 apply_patch hardware/samsung hardware_samsung.patch
 apply_patch packages/apps/Jelly packages_apps_Jelly.patch
+apply_patch packages/apps/LineageParts packages_apps_LineageParts.patch
 apply_patch packages/apps/Settings packages_apps_Settings.patch
 apply_patch packages/modules/Connectivity packages_modules_Connectivity.patch
 apply_patch system/apex system_apex.patch
