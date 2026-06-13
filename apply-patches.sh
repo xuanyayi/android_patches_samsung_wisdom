@@ -29,7 +29,9 @@ apply_patch() {
 apply_patch frameworks/av frameworks_av.patch
 apply_patch frameworks/base frameworks_base.patch
 apply_patch frameworks/native frameworks_native.patch
+apply_patch frameworks/opt/net/ims frameworks_opt_net_ims.patch
 apply_patch frameworks/opt/telephony frameworks_opt_telephony.patch
+apply_patch packages/apps/CarrierConfig packages_apps_CarrierConfig.patch
 apply_patch hardware/interfaces hardware_interfaces.patch
 apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
 apply_patch hardware/samsung hardware_samsung.patch

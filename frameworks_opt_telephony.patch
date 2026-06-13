@@ -1,3 +1,339 @@
+diff --git a/proguard.flags b/proguard.flags
+index ebc8922977..a7e44a23c7 100644
+--- a/proguard.flags
++++ b/proguard.flags
+@@ -27,3 +27,7 @@ public protected *;
+ -keepclassmembers class * {
+ @**.UnsupportedAppUsage *;
+ }
++
++# Annotation-only dependencies are not packaged into telephony-common.
++-dontwarn androidx.annotation.**
++-dontwarn com.android.net.module.annotation.**
+diff --git a/src/java/com/android/internal/telephony/GsmCdmaCallTracker.java b/src/java/com/android/internal/telephony/GsmCdmaCallTracker.java
+index 3293558bd2..b859de1d7e 100755
+--- a/src/java/com/android/internal/telephony/GsmCdmaCallTracker.java
++++ b/src/java/com/android/internal/telephony/GsmCdmaCallTracker.java
+@@ -35,6 +35,8 @@ import android.telephony.CarrierConfigManager;
+ import android.telephony.CellLocation;
+ import android.telephony.DisconnectCause;
+ import android.telephony.PhoneNumberUtils;
++import android.telephony.RadioAccessFamily;
++import android.telephony.ServiceState;
+ import android.telephony.ServiceState.RilRadioTechnology;
+ import android.telephony.TelephonyManager;
+ import android.telephony.cdma.CdmaCellLocation;
+@@ -71,6 +73,11 @@ public class GsmCdmaCallTracker extends CallTracker {
+ 
+     private static final int MAX_CONNECTIONS_CDMA = 8;
+     private static final int MAX_CONNECTIONS_PER_CALL_CDMA = 1; //only 1 connection allowed per call
++    private static final int EVENT_SET_CS_NETWORK_TYPE_DONE = 21;
++    private static final int EVENT_RESTORE_CS_NETWORK_TYPE_DONE = 22;
++    private static final int EVENT_DIAL_AFTER_CS_NETWORK_TYPE = 23;
++    private static final int CSFB_MAX_RAT_WAIT_ATTEMPTS = 15;
++    private static final long CSFB_RAT_POLL_DELAY_MILLIS = 1000;
+ 
+     //***** Instance Variables
+     @VisibleForTesting
+@@ -98,6 +105,12 @@ public class GsmCdmaCallTracker extends CallTracker {
+     private GsmCdmaPhone mPhone;
+ 
+     private boolean mDesiredMute = false;    // false = mute off
++    private boolean mCsfbNetworkOverrideActive;
++    private boolean mRestoreCsNetworkOnRadioAvailable;
++    private int mCsfbRestoreNetworkType = RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
++    private int mPendingGsmDialClirMode;
++    private UUSInfo mPendingGsmDialUusInfo;
++    private int mCsfbRatWaitAttempts;
+ 
+     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+     public PhoneConstants.State mState = PhoneConstants.State.IDLE;
+@@ -216,6 +229,8 @@ public class GsmCdmaCallTracker extends CallTracker {
+ 
+         mConnections = null;
+         mPendingMO = null;
++        removeMessages(EVENT_DIAL_AFTER_CS_NETWORK_TYPE);
++        restoreCsNetworkAfterGsmDial();
+         clearDisconnected();
+     }
+ 
+@@ -358,9 +373,9 @@ public class GsmCdmaCallTracker extends CallTracker {
+             // Always unmute when initiating a new call
+             setMute(false);
+ 
+-            mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+-                    mPendingMO.getEmergencyNumberInfo(), mPendingMO.hasKnownUserIntentEmergency(),
+-                    clirMode, uusInfo, obtainCompleteMessage());
++            mPendingGsmDialClirMode = clirMode;
++            mPendingGsmDialUusInfo = uusInfo;
++            maybePrepareCsNetworkForGsmDial(isEmergencyCall, clirMode, uusInfo);
+         }
+ 
+         if (mNumberConverted) {
+@@ -812,6 +827,7 @@ public class GsmCdmaCallTracker extends CallTracker {
+         if (mState == PhoneConstants.State.IDLE && oldState != mState) {
+             mVoiceCallEndedRegistrants.notifyRegistrants(
+                 new AsyncResult(null, null, null));
++            restoreCsNetworkAfterGsmDial();
+         } else if (oldState == PhoneConstants.State.IDLE && oldState != mState) {
+             mVoiceCallStartedRegistrants.notifyRegistrants (
+                     new AsyncResult(null, null, null));
+@@ -1082,6 +1098,8 @@ public class GsmCdmaCallTracker extends CallTracker {
+             mDroppedDuringPoll.add(mPendingMO);
+             mPendingMO = null;
+             mHangupPendingMO = false;
++            removeMessages(EVENT_DIAL_AFTER_CS_NETWORK_TYPE);
++            restoreCsNetworkAfterGsmDial();
+ 
+             if (!isPhoneTypeGsm()) {
+                 if( mPendingCallInEcm) {
+@@ -1215,12 +1233,125 @@ public class GsmCdmaCallTracker extends CallTracker {
+     }
+ 
+     private void handleRadioNotAvailable() {
++        if (mCsfbNetworkOverrideActive) {
++            mRestoreCsNetworkOnRadioAvailable = true;
++        } else {
++            clearCsNetworkOverrideState();
++        }
++        removeMessages(EVENT_DIAL_AFTER_CS_NETWORK_TYPE);
+         // handlePollCalls will clear out its
+         // call list when it gets the CommandException
+         // error result from this
+         pollCallsWhenSafe();
+     }
+ 
++    private void maybePrepareCsNetworkForGsmDial(boolean isEmergencyCall, int clirMode,
++            UUSInfo uusInfo) {
++        if (isEmergencyCall) {
++            dialPendingGsmMo(clirMode, uusInfo);
++            return;
++        }
++
++        mCsfbRestoreNetworkType = RadioAccessFamily.getNetworkTypeFromRaf(
++                (int) mPhone.getAllowedNetworkTypes(
++                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER));
++        if (mCsfbRestoreNetworkType == RILConstants.NETWORK_MODE_WCDMA_PREF) {
++            dialPendingGsmMo(clirMode, uusInfo);
++            return;
++        }
++
++        mCsfbNetworkOverrideActive = true;
++        mCsfbRatWaitAttempts = 0;
++        removeMessages(EVENT_DIAL_AFTER_CS_NETWORK_TYPE);
++        log("maybePrepareCsNetworkForGsmDial: temporary networkType="
++                + RILConstants.NETWORK_MODE_WCDMA_PREF + ", restore=" + mCsfbRestoreNetworkType);
++        mCi.setPreferredNetworkType(RILConstants.NETWORK_MODE_WCDMA_PREF,
++                obtainMessage(EVENT_SET_CS_NETWORK_TYPE_DONE));
++    }
++
++    private void dialPendingGsmMo(int clirMode, UUSInfo uusInfo) {
++        if (mPendingMO == null) {
++            log("dialPendingGsmMo: no pending MO");
++            restoreCsNetworkAfterGsmDial();
++            return;
++        }
++
++        mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
++                mPendingMO.getEmergencyNumberInfo(), mPendingMO.hasKnownUserIntentEmergency(),
++                clirMode, uusInfo, obtainCompleteMessage());
++        mPendingGsmDialClirMode = CommandsInterface.CLIR_DEFAULT;
++        mPendingGsmDialUusInfo = null;
++        mCsfbRatWaitAttempts = 0;
++    }
++
++    private void disconnectPendingGsmMo(int cause) {
++        if (mPendingMO == null) {
++            log("disconnectPendingGsmMo: no pending MO");
++            restoreCsNetworkAfterGsmDial();
++            return;
++        }
++
++        mPendingMO.mCause = cause;
++        mPendingGsmDialClirMode = CommandsInterface.CLIR_DEFAULT;
++        mPendingGsmDialUusInfo = null;
++        mCsfbRatWaitAttempts = 0;
++        restoreCsNetworkAfterGsmDial();
++        pollCallsWhenSafe();
++    }
++
++    private void restoreCsNetworkAfterGsmDial() {
++        if (!mCsfbNetworkOverrideActive) {
++            return;
++        }
++
++        log("restoreCsNetworkAfterGsmDial: networkType=" + mCsfbRestoreNetworkType);
++        mCsfbNetworkOverrideActive = false;
++        mCi.setPreferredNetworkType(mCsfbRestoreNetworkType,
++                obtainMessage(EVENT_RESTORE_CS_NETWORK_TYPE_DONE));
++    }
++
++    private void clearCsNetworkOverrideState() {
++        mCsfbNetworkOverrideActive = false;
++        mRestoreCsNetworkOnRadioAvailable = false;
++        mCsfbRestoreNetworkType = RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
++        mPendingGsmDialClirMode = CommandsInterface.CLIR_DEFAULT;
++        mPendingGsmDialUusInfo = null;
++        mCsfbRatWaitAttempts = 0;
++    }
++
++    private void restoreCsNetworkAfterRadioAvailable() {
++        if (!mRestoreCsNetworkOnRadioAvailable) {
++            return;
++        }
++
++        log("restoreCsNetworkAfterRadioAvailable: networkType=" + mCsfbRestoreNetworkType);
++        mRestoreCsNetworkOnRadioAvailable = false;
++        mCsfbNetworkOverrideActive = false;
++        mCi.setPreferredNetworkType(mCsfbRestoreNetworkType,
++                obtainMessage(EVENT_RESTORE_CS_NETWORK_TYPE_DONE));
++    }
++
++    private void dialPendingGsmMoWhenCsRatReady() {
++        int rat = mPhone.getServiceState().getRilVoiceRadioTechnology();
++        if (rat != ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN && !ServiceState.isPsOnlyTech(rat)) {
++            log("dialPendingGsmMoWhenCsRatReady: CS RAT ready, rat="
++                    + ServiceState.rilRadioTechnologyToString(rat));
++            dialPendingGsmMo(mPendingGsmDialClirMode, mPendingGsmDialUusInfo);
++            return;
++        }
++
++        if (mCsfbRatWaitAttempts >= CSFB_MAX_RAT_WAIT_ATTEMPTS) {
++            Rlog.w(LOG_TAG, "CS RAT did not become ready; not dialing on PS-only RAT, rat="
++                    + ServiceState.rilRadioTechnologyToString(rat));
++            disconnectPendingGsmMo(DisconnectCause.OUT_OF_SERVICE);
++            return;
++        }
++
++        mCsfbRatWaitAttempts++;
++        sendMessageDelayed(obtainMessage(EVENT_DIAL_AFTER_CS_NETWORK_TYPE),
++                CSFB_RAT_POLL_DELAY_MILLIS);
++    }
++
+     private void dumpState() {
+         List l;
+ 
+@@ -1262,6 +1393,8 @@ public class GsmCdmaCallTracker extends CallTracker {
+             // GsmCdma index assigned yet
+ 
+             if (Phone.DEBUG_PHONE) log("hangup: set hangupPendingMO to true");
++            removeMessages(EVENT_DIAL_AFTER_CS_NETWORK_TYPE);
++            restoreCsNetworkAfterGsmDial();
+             mHangupPendingMO = true;
+         } else if (!isPhoneTypeGsm()
+                 && conn.getCall() == mRingingCall
+@@ -1635,12 +1768,36 @@ public class GsmCdmaCallTracker extends CallTracker {
+                 mDroppedDuringPoll.clear();
+             break;
+ 
++            case EVENT_SET_CS_NETWORK_TYPE_DONE:
++                ar = (AsyncResult) msg.obj;
++                if (ar.exception != null) {
++                    Rlog.w(LOG_TAG, "set CS network type before dial failed; not dialing",
++                            ar.exception);
++                    disconnectPendingGsmMo(DisconnectCause.OUT_OF_SERVICE);
++                    break;
++                }
++                sendMessage(obtainMessage(EVENT_DIAL_AFTER_CS_NETWORK_TYPE));
++            break;
++
++            case EVENT_DIAL_AFTER_CS_NETWORK_TYPE:
++                dialPendingGsmMoWhenCsRatReady();
++            break;
++
++            case EVENT_RESTORE_CS_NETWORK_TYPE_DONE:
++                ar = (AsyncResult) msg.obj;
++                if (ar.exception != null) {
++                    Rlog.w(LOG_TAG, "restore CS network type after dial failed", ar.exception);
++                }
++                clearCsNetworkOverrideState();
++            break;
++
+             case EVENT_REPOLL_AFTER_DELAY:
+             case EVENT_CALL_STATE_CHANGE:
+                 pollCallsWhenSafe();
+             break;
+ 
+             case EVENT_RADIO_AVAILABLE:
++                restoreCsNetworkAfterRadioAvailable();
+                 handleRadioAvailable();
+             break;
+ 
+diff --git a/src/java/com/android/internal/telephony/GsmCdmaPhone.java b/src/java/com/android/internal/telephony/GsmCdmaPhone.java
+index 76a8d57246..f37292ef5e 100644
+--- a/src/java/com/android/internal/telephony/GsmCdmaPhone.java
++++ b/src/java/com/android/internal/telephony/GsmCdmaPhone.java
+@@ -1359,11 +1359,34 @@ public class GsmCdmaPhone extends Phone {
+     }
+ 
+     private boolean useImsForCall(DialArgs dialArgs) {
+-        return isImsUseEnabled()
+-                && mImsPhone != null
+-                && (mImsPhone.isVoiceOverCellularImsEnabled() || mImsPhone.isWifiCallingEnabled()
+-                || (mImsPhone.isVideoEnabled() && VideoProfile.isVideo(dialArgs.videoState)))
+-                && (mImsPhone.getServiceState().getState() == ServiceState.STATE_IN_SERVICE);
++        ImsManager imsManager = mImsManagerFactory.create(mContext, mPhoneId);
++        boolean imsUseEnabled = isImsUseEnabled(imsManager);
++        boolean imsPhonePresent = mImsPhone != null;
++        boolean voiceOverCellularEnabled = imsPhonePresent
++                && mImsPhone.isVoiceOverCellularImsEnabled();
++        boolean wifiCallingEnabled = imsPhonePresent && mImsPhone.isWifiCallingEnabled();
++        boolean videoDial = VideoProfile.isVideo(dialArgs.videoState);
++        boolean videoEnabled = imsPhonePresent && mImsPhone.isVideoEnabled() && videoDial;
++        int imsServiceState = imsPhonePresent
++                ? mImsPhone.getServiceState().getState() : ServiceState.STATE_OUT_OF_SERVICE;
++        boolean imsInService = imsServiceState == ServiceState.STATE_IN_SERVICE;
++        boolean useImsForCall = imsUseEnabled
++                && imsPhonePresent
++                && (voiceOverCellularEnabled || wifiCallingEnabled || videoEnabled)
++                && imsInService;
++
++        if (DBG) {
++            logd("useImsForCall gate: result=" + useImsForCall
++                    + ", imsUseEnabled=" + imsUseEnabled
++                    + ", imsPhonePresent=" + imsPhonePresent
++                    + ", voiceOverCellularEnabled=" + voiceOverCellularEnabled
++                    + ", wifiCallingEnabled=" + wifiCallingEnabled
++                    + ", videoEnabled=" + videoEnabled
++                    + ", videoDial=" + videoDial
++                    + ", imsServiceState=" + imsServiceState);
++        }
++
++        return useImsForCall;
+     }
+ 
+     public boolean useImsForEmergency() {
+@@ -4882,10 +4905,26 @@ public class GsmCdmaPhone extends Phone {
+      */
+     public boolean isImsUseEnabled() {
+         ImsManager imsManager = mImsManagerFactory.create(mContext, mPhoneId);
+-        boolean imsUseEnabled = ((imsManager.isVolteEnabledByPlatform()
+-                && imsManager.isEnhanced4gLteModeSettingEnabledByUser())
+-                || (imsManager.isWfcEnabledByPlatform() && imsManager.isWfcEnabledByUser())
+-                && imsManager.isNonTtyOrTtyOnVolteEnabled());
++        return isImsUseEnabled(imsManager);
++    }
++
++    private boolean isImsUseEnabled(ImsManager imsManager) {
++        boolean voltePlatformEnabled = imsManager.isVolteEnabledByPlatform();
++        boolean enhanced4gEnabledByUser = imsManager.isEnhanced4gLteModeSettingEnabledByUser();
++        boolean wfcPlatformEnabled = imsManager.isWfcEnabledByPlatform();
++        boolean wfcEnabledByUser = imsManager.isWfcEnabledByUser();
++        boolean nonTtyOrTtyOnVolteEnabled = imsManager.isNonTtyOrTtyOnVolteEnabled();
++        boolean imsUseEnabled = ((voltePlatformEnabled && enhanced4gEnabledByUser)
++                || (wfcPlatformEnabled && wfcEnabledByUser)
++                && nonTtyOrTtyOnVolteEnabled);
++        if (DBG) {
++            logd("isImsUseEnabled gate: result=" + imsUseEnabled
++                    + ", voltePlatformEnabled=" + voltePlatformEnabled
++                    + ", enhanced4gEnabledByUser=" + enhanced4gEnabledByUser
++                    + ", wfcPlatformEnabled=" + wfcPlatformEnabled
++                    + ", wfcEnabledByUser=" + wfcEnabledByUser
++                    + ", nonTtyOrTtyOnVolteEnabled=" + nonTtyOrTtyOnVolteEnabled);
++        }
+         return imsUseEnabled;
+     }
+ 
 diff --git a/src/java/com/android/internal/telephony/RILUtils.java b/src/java/com/android/internal/telephony/RILUtils.java
 index 61f1e82a76..e05ead779e 100644
 --- a/src/java/com/android/internal/telephony/RILUtils.java

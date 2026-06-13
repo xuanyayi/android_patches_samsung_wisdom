@@ -1,0 +1,43 @@
+diff --git a/src/java/com/android/ims/ImsManager.java b/src/java/com/android/ims/ImsManager.java
+index c41426d..3b51735 100644
+--- a/src/java/com/android/ims/ImsManager.java
++++ b/src/java/com/android/ims/ImsManager.java
+@@ -565,6 +565,10 @@ public class ImsManager implements FeatureUpdates {
+      * return the default value.
+      */
+     public boolean isEnhanced4gLteModeSettingEnabledByUser() {
++        if (isDebugVolteAvailabilityOverrideEnabled()) {
++            return true;
++        }
++
+         int setting = mSubscriptionManagerProxy.getIntegerSubscriptionProperty(
+                 getSubId(), SubscriptionManager.ENHANCED_4G_MODE_ENABLED,
+                 SUB_PROPERTY_NOT_INITIALIZED);
+@@ -797,11 +801,7 @@ public class ImsManager implements FeatureUpdates {
+     public boolean isVolteEnabledByPlatform() {
+         // We first read the per slot value. If doesn't exist, we read the general value. If still
+         // doesn't exist, we use the hardcoded default value.
+-        if (SystemProperties.getInt(
+-                PROPERTY_DBG_VOLTE_AVAIL_OVERRIDE + Integer.toString(mPhoneId),
+-                SYSTEM_PROPERTY_NOT_SET) == 1 ||
+-                SystemProperties.getInt(PROPERTY_DBG_VOLTE_AVAIL_OVERRIDE,
+-                        SYSTEM_PROPERTY_NOT_SET) == 1) {
++        if (isDebugVolteAvailabilityOverrideEnabled()) {
+             return true;
+         }
+ 
+@@ -816,6 +816,14 @@ public class ImsManager implements FeatureUpdates {
+                 && isGbaValid();
+     }
+ 
++    private boolean isDebugVolteAvailabilityOverrideEnabled() {
++        return SystemProperties.getInt(
++                PROPERTY_DBG_VOLTE_AVAIL_OVERRIDE + Integer.toString(mPhoneId),
++                SYSTEM_PROPERTY_NOT_SET) == 1
++                || SystemProperties.getInt(PROPERTY_DBG_VOLTE_AVAIL_OVERRIDE,
++                        SYSTEM_PROPERTY_NOT_SET) == 1;
++    }
++
+     /**
+      * @return {@code true} if IMS over NR is enabled by the platform, {@code false} otherwise.
+      */
