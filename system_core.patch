@@ -1,3 +1,96 @@
+diff --git a/fs_mgr/fs_mgr.cpp b/fs_mgr/fs_mgr.cpp
+index f1ec0bb97..b88e7d6c9 100644
+--- a/fs_mgr/fs_mgr.cpp
++++ b/fs_mgr/fs_mgr.cpp
+@@ -741,8 +741,9 @@ static int prepare_fs_for_mount(const std::string& blk_device, const FstabEntry&
+         }
+     }
+ 
+-    if (entry.fs_mgr_flags.check ||
+-        (fs_stat & (FS_STAT_UNCLEAN_SHUTDOWN | FS_STAT_QUOTA_ENABLED))) {
++    if (!entry.fs_mgr_flags.no_fsck &&
++        (entry.fs_mgr_flags.check ||
++         (fs_stat & (FS_STAT_UNCLEAN_SHUTDOWN | FS_STAT_QUOTA_ENABLED)))) {
+         check_fs(blk_device, entry.fs_type, mount_point, &fs_stat);
+     }
+ 
+@@ -934,7 +935,9 @@ static bool mount_with_alternatives(const Fstab& fstab, int start_idx, int* end_
+                     mount_errno = errno;
+                 }
+                 // retry after fsck
+-                check_fs(fstab[i].blk_device, fstab[i].fs_type, fstab[i].mount_point, &fs_stat);
++                if (!fstab[i].fs_mgr_flags.no_fsck) {
++                    check_fs(fstab[i].blk_device, fstab[i].fs_type, fstab[i].mount_point, &fs_stat);
++                }
+             }
+         }
+         log_fs_stat(fstab[i].blk_device, fs_stat);
+@@ -1920,7 +1923,9 @@ static int fs_mgr_do_mount_helper(Fstab* fstab, const std::string& n_name,
+                 mount_errors++;
+                 fs_stat |= FS_STAT_FULL_MOUNT_FAILED;
+                 // try again after fsck
+-                check_fs(n_blk_device, fstab_entry.fs_type, mount_point, &fs_stat);
++                if (!fstab_entry.fs_mgr_flags.no_fsck) {
++                    check_fs(n_blk_device, fstab_entry.fs_type, mount_point, &fs_stat);
++                }
+             }
+         }
+         log_fs_stat(fstab_entry.blk_device, fs_stat);
+diff --git a/fs_mgr/fs_mgr_fstab.cpp b/fs_mgr/fs_mgr_fstab.cpp
+index fc200b2d5..1410cdc7b 100644
+--- a/fs_mgr/fs_mgr_fstab.cpp
++++ b/fs_mgr/fs_mgr_fstab.cpp
+@@ -183,6 +183,7 @@ bool ParseFsMgrFlags(const std::string& flags, FstabEntry* entry) {
+         CheckFlag("fscompress", fs_compress);
+         CheckFlag("overlayfs_remove_missing_lowerdir", overlayfs_remove_missing_lowerdir);
+         CheckFlag("wrappedkey", wrapped_key);
++        CheckFlag("nofsck", no_fsck);
+ 
+ #undef CheckFlag
+ 
+diff --git a/fs_mgr/include_fstab/fstab/fstab.h b/fs_mgr/include_fstab/fstab/fstab.h
+index ee1ff58bd..ae1e842f1 100644
+--- a/fs_mgr/include_fstab/fstab/fstab.h
++++ b/fs_mgr/include_fstab/fstab/fstab.h
+@@ -83,6 +83,7 @@ struct FstabEntry {
+         bool fs_compress : 1;
+         bool overlayfs_remove_missing_lowerdir : 1;
+         bool wrapped_key : 1;
++        bool no_fsck : 1;
+     } fs_mgr_flags = {};
+ 
+     bool is_encryptable() const { return fs_mgr_flags.crypt; }
+diff --git a/fs_mgr/tests/fs_mgr_test.cpp b/fs_mgr/tests/fs_mgr_test.cpp
+index 6c881c0bf..5ca6c028e 100644
+--- a/fs_mgr/tests/fs_mgr_test.cpp
++++ b/fs_mgr/tests/fs_mgr_test.cpp
+@@ -206,7 +206,8 @@ bool CompareFlags(FstabEntry::FsMgrFlags& lhs, FstabEntry::FsMgrFlags& rhs) {
+            lhs.checkpoint_fs == rhs.checkpoint_fs &&
+            lhs.first_stage_mount == rhs.first_stage_mount &&
+            lhs.slot_select_other == rhs.slot_select_other &&
+-           lhs.fs_verity == rhs.fs_verity;
++           lhs.fs_verity == rhs.fs_verity &&
++           lhs.no_fsck == rhs.no_fsck;
+     // clang-format on
+ }
+ 
+@@ -411,7 +412,7 @@ source none0       swap   defaults      wait,check,nonremovable,recoveryonly
+ source none1       swap   defaults      avb,noemulatedsd,notrim,formattable,nofail
+ source none2       swap   defaults      first_stage_mount,latemount,quota,logical
+ source none3       swap   defaults      checkpoint=block
+-source none4       swap   defaults      checkpoint=fs
++source none4       swap   defaults      checkpoint=fs,nofsck
+ source none5       swap   defaults      defaults
+ )fs";
+     ASSERT_TRUE(android::base::WriteStringToFile(fstab_contents, tf.path));
+@@ -467,6 +468,7 @@ source none5       swap   defaults      defaults
+     {
+         FstabEntry::FsMgrFlags flags = {};
+         flags.checkpoint_fs = true;
++        flags.no_fsck = true;
+         EXPECT_TRUE(CompareFlags(flags, entry->fs_mgr_flags));
+     }
+ 
 diff --git a/init/selinux.cpp b/init/selinux.cpp
 index be8c5542f..d91dc3dd9 100644
 --- a/init/selinux.cpp
