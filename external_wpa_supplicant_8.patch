@@ -1,0 +1,49 @@
+diff --git a/wpa_supplicant/aidl/supplicant.cpp b/wpa_supplicant/aidl/supplicant.cpp
+index 799790b2..4e7c0d08 100644
+--- a/wpa_supplicant/aidl/supplicant.cpp
++++ b/wpa_supplicant/aidl/supplicant.cpp
+@@ -41,6 +41,7 @@ static const char* kTemplateConfPaths[] = {
+ };
+ constexpr char kOldStaIfaceConfPath[] = "/data/misc/wifi/wpa_supplicant.conf";
+ constexpr char kOldP2pIfaceConfPath[] = "/data/misc/wifi/p2p_supplicant.conf";
++constexpr char kCtrlIfaceDir[] = "/data/vendor/wifi/wpa/sockets";
+ constexpr mode_t kConfigFileMode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
+ 
+ const char* resolvePath(const char* paths[], size_t size)
+@@ -161,6 +162,20 @@ int ensureConfigFileExists(
+ 	// Did not create the conf file.
+ 	return -1;
+ }
++
++void removeStaleCtrlIfaceSocket(const std::string& ifname)
++{
++	std::string socket_path = std::string(kCtrlIfaceDir) + "/" + ifname;
++	if (unlink(socket_path.c_str()) == 0) {
++		wpa_printf(
++			MSG_INFO, "Removed stale ctrl_iface socket %s",
++			socket_path.c_str());
++	} else if (errno != ENOENT) {
++		wpa_printf(
++			MSG_DEBUG, "Unable to remove ctrl_iface socket %s: %s",
++			socket_path.c_str(), strerror(errno));
++	}
++}
+ }  // namespace
+ 
+ namespace aidl {
+@@ -382,6 +397,7 @@ Supplicant::addP2pInterfaceInternal(const std::string& name)
+ 	}
+ 
+ 	iface_params.ifname = name.c_str();
++	removeStaleCtrlIfaceSocket(name);
+ 	if (strncmp(iface_params.ifname, P2P_MGMT_DEVICE_PREFIX,
+ 		strlen(P2P_MGMT_DEVICE_PREFIX)) == 0) {
+ 		status = addP2pDevInterface(iface_params);
+@@ -442,6 +458,7 @@ Supplicant::addStaInterfaceInternal(const std::string& name)
+ 	}
+ 
+ 	iface_params.ifname = name.c_str();
++	removeStaleCtrlIfaceSocket(name);
+ 	if (strncmp(iface_params.ifname, P2P_MGMT_DEVICE_PREFIX,
+ 		strlen(P2P_MGMT_DEVICE_PREFIX)) == 0) {
+ 		status = addP2pDevInterface(iface_params);

@@ -27,6 +27,7 @@ apply_patch() {
 }
 
 apply_patch frameworks/av frameworks_av.patch
+apply_patch external/wpa_supplicant_8 external_wpa_supplicant_8.patch
 apply_patch frameworks/base frameworks_base.patch
 apply_patch frameworks/native frameworks_native.patch
 apply_patch frameworks/opt/net/ims frameworks_opt_net_ims.patch

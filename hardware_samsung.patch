@@ -1,3 +1,73 @@
+diff --git a/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java b/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
+index 387f791..b6bd27f 100644
+--- a/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
++++ b/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
+@@ -19,6 +19,7 @@ package org.lineageos.settings.doze;
+ import android.content.BroadcastReceiver;
+ import android.content.Context;
+ import android.content.Intent;
++import android.os.SystemClock;
+ import android.util.Log;
+ 
+ public class BootCompletedReceiver extends BroadcastReceiver {
+@@ -29,7 +30,12 @@ public class BootCompletedReceiver extends BroadcastReceiver {
+     @Override
+     public void onReceive(final Context context, Intent intent) {
+         if (DEBUG) Log.d(TAG, "Received boot completed intent");
+-        Utils.checkDozeService(context);
++        final Context appContext = context.getApplicationContext();
++        new Thread(() -> {
++            SystemClock.sleep(5000);
++            Utils.syncDoubleTapToWake(appContext);
++            Utils.checkDozeService(appContext);
++        }, "SamsungDozeBoot").start();
+     }
+ 
+ }
+diff --git a/doze/src/org/lineageos/settings/doze/Utils.java b/doze/src/org/lineageos/settings/doze/Utils.java
+index f6fec2b..23efe30 100644
+--- a/doze/src/org/lineageos/settings/doze/Utils.java
++++ b/doze/src/org/lineageos/settings/doze/Utils.java
+@@ -19,10 +19,12 @@ package org.lineageos.settings.doze;
+ 
+ import static android.provider.Settings.Secure.DOZE_ALWAYS_ON;
+ import static android.provider.Settings.Secure.DOZE_ENABLED;
++import static android.provider.Settings.Secure.DOUBLE_TAP_TO_WAKE;
+ 
+ import android.content.Context;
+ import android.content.Intent;
+ import android.hardware.display.AmbientDisplayConfiguration;
++import android.os.SystemClock;
+ import android.os.UserHandle;
+ import android.provider.Settings;
+ import android.util.Log;
+@@ -114,4 +116,26 @@ public final class Utils {
+         return PreferenceManager.getDefaultSharedPreferences(context)
+                 .getBoolean(WAKE_ON_GESTURE_KEY, false);
+     }
++
++    protected static void syncDoubleTapToWake(Context context) {
++        if (!context.getResources().getBoolean(
++                com.android.internal.R.bool.config_supportDoubleTapWake)) {
++            return;
++        }
++
++        final int enabled = Settings.Secure.getIntForUser(context.getContentResolver(),
++                DOUBLE_TAP_TO_WAKE, 1, UserHandle.USER_CURRENT);
++        if (enabled != 0) {
++            // Re-apply the setting after Power HAL finishes boot-time init. Writing the same
++            // value is treated as a no-op by SettingsProvider, so force a 0 -> 1 transition.
++            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 0,
++                    UserHandle.USER_CURRENT);
++            SystemClock.sleep(250);
++            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 1,
++                    UserHandle.USER_CURRENT);
++        } else {
++            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 0,
++                    UserHandle.USER_CURRENT);
++        }
++    }
+ }
 diff --git a/interfaces/current.txt b/interfaces/current.txt
 index 800bd6e..8e0c58e 100644
 --- a/interfaces/current.txt
@@ -46,3 +116,201 @@ index 3e3983c..dcb2a16 100644
 +endif
  	$(hide) $(call assert-max-image-size,$@,$(BOARD_RECOVERYIMAGE_PARTITION_SIZE),raw)
  	@echo "Made recovery image: $@"
+diff --git a/ril/secril_config_svc/Android.bp b/ril/secril_config_svc/Android.bp
+index 266ad5b..80f92c9 100644
+--- a/ril/secril_config_svc/Android.bp
++++ b/ril/secril_config_svc/Android.bp
+@@ -16,6 +16,7 @@
+ 
+ cc_binary {
+     name: "secril_config_svc",
++    stem: "secril_config_svc.p205",
+     vendor: true,
+     srcs: ["secril_config_svc.cpp"],
+     shared_libs: [
+diff --git a/ril/secril_config_svc/secril_config_svc.cpp b/ril/secril_config_svc/secril_config_svc.cpp
+index 46e42f6..270d3f4 100644
+--- a/ril/secril_config_svc/secril_config_svc.cpp
++++ b/ril/secril_config_svc/secril_config_svc.cpp
+@@ -22,24 +22,107 @@
+ #include <android-base/strings.h>
+ 
+ #include <fstream>
++#include <map>
+ 
+ #define EFS_OLD "/efs/"
+ #define EFS_NEW "/mnt/vendor/efs/"
+ #define FACTORY_PROP "factory.prop"
+ #define TELEPHONY_PROP "telephony.prop"
+ 
+-void LoadProperties(std::string data) {
++static constexpr const char* kFactoryDefaults =
++        "ro.multisim.simslotcount=1\n"
++        "ro.vendor.multisim.simslotcount=1\n"
++        "persist.radio.multisim.config=ss\n";
++
++static constexpr const char* kTelephonyDefaults =
++        "ro.vendor.radio.default_network=9\n"
++        "ro.vendor.radio.default_network_by=telephony.prop_9\n"
++        "ro.vendor.radio.voice_capable=1\n"
++        "ro.vendor.telephony.force_legacy_voice_capability=1\n";
++
++using PropertyMap = std::map<std::string, std::string>;
++
++PropertyMap ParseProperties(const std::string& data) {
++    PropertyMap properties;
++
+     for (std::string line : android::base::Split(data, "\n")) {
+-        if (line == "\0") break;
++        if (line.empty() || line == "\0") continue;
+ 
+         std::vector<std::string> parts = android::base::Split(line, "=");
+         if (parts.size() == 2) {
+-            LOG(INFO) << "Setting property: " << line;
+-            android::base::SetProperty(parts.at(0), parts.at(1));
++            properties[parts.at(0)] = parts.at(1);
+         } else {
+             LOG(ERROR) << "Invalid data: " << line;
+         }
+     }
++
++    return properties;
++}
++
++void EnsureProperty(PropertyMap* properties, const std::string& key, const std::string& value) {
++    if (properties->find(key) == properties->end()) {
++        (*properties)[key] = value;
++    }
++}
++
++std::string ResolveDefaultNetwork(const PropertyMap& properties) {
++    static constexpr const char* kNetworkKeys[] = {
++            "ro.vendor.radio.default_network",
++            "ro.telephony.default_network",
++            "ro.multisim.default_network",
++    };
++
++    for (const char* key : kNetworkKeys) {
++        // Build properties are the authority here; EFS telephony.prop can be stale.
++        const std::string current = android::base::GetProperty(key, "");
++        if (!current.empty()) {
++            return current;
++        }
++    }
++
++    for (const char* key : kNetworkKeys) {
++        auto it = properties.find(key);
++        if (it != properties.end() && !it->second.empty()) {
++            return it->second;
++        }
++    }
++
++    return "9";
++}
++
++void ApplyFactoryFallbacks(PropertyMap* properties) {
++    EnsureProperty(properties, "ro.multisim.simslotcount", "1");
++    EnsureProperty(properties, "ro.vendor.multisim.simslotcount", "1");
++    EnsureProperty(properties, "persist.radio.multisim.config", "ss");
++}
++
++void ApplyTelephonyFallbacks(PropertyMap* properties) {
++    const std::string defaultNetwork = ResolveDefaultNetwork(*properties);
++
++    (*properties)["ro.vendor.radio.default_network"] = defaultNetwork;
++    (*properties)["ro.vendor.radio.default_network_by"] = "telephony.prop_" + defaultNetwork;
++    EnsureProperty(properties, "ro.vendor.radio.voice_capable", "1");
++    EnsureProperty(properties, "ro.vendor.telephony.force_legacy_voice_capability", "1");
++}
++
++void LoadProperties(const PropertyMap& properties) {
++    for (const auto& [key, value] : properties) {
++        const std::string current = android::base::GetProperty(key, "");
++        if (!current.empty()) {
++            if (current == value) {
++                LOG(INFO) << "Keeping property unchanged: " << key << "=" << value;
++                continue;
++            }
++
++            if (android::base::StartsWith(key, "ro.")) {
++                LOG(INFO) << "Keeping existing read-only property: " << key << "=" << current;
++                continue;
++            }
++        }
++
++        LOG(INFO) << "Setting property: " << key << "=" << value;
++        android::base::SetProperty(key, value);
++    }
+ }
+ 
+ int main(int argc, char *argv[]) {
+@@ -58,13 +141,25 @@ int main(int argc, char *argv[]) {
+ 
+     LOG(INFO) << "Loading properties from " << prop;
+ 
++    PropertyMap properties;
+     std::string content;
+     if (android::base::ReadFileToString(prop, &content)) {
+-        LoadProperties(content.c_str());
++        properties = ParseProperties(content);
++        if (android::base::EndsWith(prop, FACTORY_PROP)) {
++            ApplyFactoryFallbacks(&properties);
++        } else if (android::base::EndsWith(prop, TELEPHONY_PROP)) {
++            ApplyTelephonyFallbacks(&properties);
++        }
+     } else if (android::base::EndsWith(prop, FACTORY_PROP)) {
+         LOG(WARNING) << "Could not read " << prop << ", setting defaults!";
+-        LoadProperties("ro.vendor.multisim.simslotcount=1");
++        properties = ParseProperties(kFactoryDefaults);
++    } else if (android::base::EndsWith(prop, TELEPHONY_PROP)) {
++        LOG(WARNING) << "Could not read " << prop << ", setting defaults!";
++        properties = ParseProperties(kTelephonyDefaults);
+     } else {
+         LOG(WARNING) << "Could not read " << prop << "!";
++        return 0;
+     }
++
++    LoadProperties(properties);
+ }
+diff --git a/interfaces/camera/provider/4.0/Android.bp b/interfaces/camera/provider/4.0/Android.bp
+new file mode 100644
+index 0000000..c1a7de2
+--- /dev/null
++++ b/interfaces/camera/provider/4.0/Android.bp
+@@ -0,0 +1,22 @@
++// This file is autogenerated by hidl-gen -Landroidbp.
++
++hidl_interface {
++    name: "vendor.samsung.hardware.camera.provider@4.0",
++    root: "vendor.samsung.hardware",
++    srcs: [
++        "ISehCameraProvider.hal",
++    ],
++    interfaces: [
++        "android.hardware.camera.common@1.0",
++        "android.hardware.camera.device@1.0",
++        "android.hardware.camera.device@3.2",
++        "android.hardware.camera.device@3.3",
++        "android.hardware.camera.device@3.4",
++        "android.hardware.camera.provider@2.4",
++        "android.hardware.camera.provider@2.5",
++        "android.hardware.camera.provider@2.6",
++        "android.hardware.graphics.common@1.0",
++        "android.hidl.base@1.0",
++    ],
++    gen_java: false,
++}
+diff --git a/interfaces/camera/provider/4.0/ISehCameraProvider.hal b/interfaces/camera/provider/4.0/ISehCameraProvider.hal
+new file mode 100644
+index 0000000..3fecafe
+--- /dev/null
++++ b/interfaces/camera/provider/4.0/ISehCameraProvider.hal
+@@ -0,0 +1,8 @@
++package vendor.samsung.hardware.camera.provider@4.0;
++
++import android.hardware.camera.common@1.0::Status;
++import android.hardware.camera.provider@2.6::ICameraProvider;
++
++interface ISehCameraProvider extends android.hardware.camera.provider@2.6::ICameraProvider {
++    sehGetCameraIdList() generates (Status status, vec<string> cameraDeviceNames);
++};

@@ -1,3 +1,31 @@
+diff --git a/CN.xml b/CN.xml
+index 2524dae..e9b9b7f 100644
+--- a/CN.xml
++++ b/CN.xml
+@@ -80,6 +80,7 @@
+         carrier="联通IMS"
+         apn="ims"
+         protocol="IPV4V6"
++        roaming_protocol="IP"
+         type="ims"
+     />
+     <apn
+@@ -236,6 +237,7 @@
+         carrier="联通IMS"
+         apn="ims"
+         protocol="IPV4V6"
++        roaming_protocol="IP"
+         type="ims"
+     />
+     <apn
+@@ -323,6 +325,7 @@
+         carrier="联通IMS"
+         apn="ims"
+         protocol="IPV4V6"
++        roaming_protocol="IP"
+         type="ims"
+     />
+     <apn
 diff --git a/TW.xml b/TW.xml
 index 5b76803..ec81067 100644
 --- a/TW.xml

@@ -1,3 +1,15 @@
+diff --git a/proguard.flags b/proguard.flags
+index 5482f1c52d..d5ae5f3c73 100644
+--- a/proguard.flags
++++ b/proguard.flags
+@@ -71,3 +71,7 @@
+ -keep class androidx.window.extensions.** { *; }
+ -dontwarn androidx.window.extensions.**
+ -keep class androidx.window.** { *; }
++-dontwarn androidx.window.sidecar.**
++-dontwarn androidx.palette.graphics.**
++-dontwarn android.support.annotation.**
++-dontwarn kotlin.jvm.internal.SourceDebugExtension
 diff --git a/res/values-zh-rCN/cm_strings.xml b/res/values-zh-rCN/cm_strings.xml
 index b8cafec828..1173d818ca 100644
 --- a/res/values-zh-rCN/cm_strings.xml
