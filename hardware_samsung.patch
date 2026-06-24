@@ -25,7 +25,7 @@ index 387f791..b6bd27f 100644
  
  }
 diff --git a/doze/src/org/lineageos/settings/doze/Utils.java b/doze/src/org/lineageos/settings/doze/Utils.java
-index f6fec2b..23efe30 100644
+index f6fec2b..0a22ddf 100644
 --- a/doze/src/org/lineageos/settings/doze/Utils.java
 +++ b/doze/src/org/lineageos/settings/doze/Utils.java
 @@ -19,10 +19,12 @@ package org.lineageos.settings.doze;
@@ -41,7 +41,7 @@ index f6fec2b..23efe30 100644
  import android.os.UserHandle;
  import android.provider.Settings;
  import android.util.Log;
-@@ -114,4 +116,26 @@ public final class Utils {
+@@ -114,4 +116,25 @@ public final class Utils {
          return PreferenceManager.getDefaultSharedPreferences(context)
                  .getBoolean(WAKE_ON_GESTURE_KEY, false);
      }
@@ -55,8 +55,7 @@ index f6fec2b..23efe30 100644
 +        final int enabled = Settings.Secure.getIntForUser(context.getContentResolver(),
 +                DOUBLE_TAP_TO_WAKE, 1, UserHandle.USER_CURRENT);
 +        if (enabled != 0) {
-+            // Re-apply the setting after Power HAL finishes boot-time init. Writing the same
-+            // value is treated as a no-op by SettingsProvider, so force a 0 -> 1 transition.
++            // SettingsProvider ignores same-value writes; force the Power HAL hint to replay.
 +            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 0,
 +                    UserHandle.USER_CURRENT);
 +            SystemClock.sleep(250);
@@ -67,210 +66,6 @@ index f6fec2b..23efe30 100644
 +                    UserHandle.USER_CURRENT);
 +        }
 +    }
- }
-diff --git a/interfaces/current.txt b/interfaces/current.txt
-index 800bd6e..8e0c58e 100644
---- a/interfaces/current.txt
-+++ b/interfaces/current.txt
-@@ -2,3 +2,4 @@ d70c073053fc04425ee47b8ce56f01e984cd3af354c91fa9ce0e3833b84e2eda vendor.samsung.
- e80adc3606e15e3a71e2b3451e1785287406dca19abd719064927c8477dbb7e7 vendor.samsung.hardware.radio@1.2::IRadio
- 482cdc2795dd2d3c89f81f16496a180294b00f05efc0dec599f801823f30c270 vendor.samsung.hardware.radio@1.2::IRadioIndication
- baea5e92105d0115d9b1167a21513b5d6c77fdbac78c2e53742b550d548ef8c5 vendor.samsung.hardware.radio@1.2::IRadioResponse
-+431c5f6bef7fca53659b6262cc3fe443a098d40fadcfee17695f93c03dab1e78 vendor.samsung.hardware.camera.provider@4.0::ISehCameraProvider
-diff --git a/mkbootimg.mk b/mkbootimg.mk
-index 3e3983c..dcb2a16 100644
---- a/mkbootimg.mk
-+++ b/mkbootimg.mk
-@@ -63,7 +63,7 @@ endif
- ifeq ($(strip $(TARGET_NEEDS_LOKI)),true)
- LOKI_TOOL := loki_tool
- else
--LOKI_TOOL := echo
-+LOKI_TOOL :=
- TARGET_LOKI_ABOOT_IMAGE :=
- endif
- 
-@@ -71,16 +71,24 @@ $(INSTALLED_BOOTIMAGE_TARGET): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES) $(BOOTIM
- 	$(call pretty,"Target boot image: $@")
- 	$(hide) $(MKBOOTIMG) --kernel $(call bootimage-to-kernel,$(1)) $(INTERNAL_BOOTIMAGE_ARGS) $(INTERNAL_MKBOOTIMG_VERSION_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $@
- 	$(hide) echo -n "SEANDROIDENFORCE" >> $@
-+ifeq ($(strip $(TARGET_NEEDS_LOKI)),true)
- 	$(hide) $(LOKI_TOOL) patch boot $(TARGET_LOKI_ABOOT_IMAGE) $@ $@.lok
- 	$(hide) cp $@.lok $@ || true
-+endif
- 	$(hide) $(call assert-max-image-size,$@,$(BOARD_BOOTIMAGE_PARTITION_SIZE),raw)
- 	@echo "Made boot image: $@"
- 
-+ifndef BOARD_RECOVERY_MKBOOTIMG_ARGS
-+BOARD_RECOVERY_MKBOOTIMG_ARGS := $(BOARD_MKBOOTIMG_ARGS)
-+endif
-+
- $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTIMG) $(recovery_ramdisk) $(recovery_kernel) $(RECOVERYIMAGE_EXTRA_DEPS)
- 	@echo "----- Making recovery image ------"
--	$(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(INTERNAL_MKBOOTIMG_VERSION_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $@
-+	$(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(INTERNAL_MKBOOTIMG_VERSION_ARGS) $(BOARD_RECOVERY_MKBOOTIMG_ARGS) --output $@
- 	$(hide) echo -n "SEANDROIDENFORCE" >> $@
-+ifeq ($(strip $(TARGET_NEEDS_LOKI)),true)
- 	$(hide) $(LOKI_TOOL) patch recovery $(TARGET_LOKI_ABOOT_IMAGE) $@ $@.lok
- 	$(hide) cp $@.lok $@ || true
-+endif
- 	$(hide) $(call assert-max-image-size,$@,$(BOARD_RECOVERYIMAGE_PARTITION_SIZE),raw)
- 	@echo "Made recovery image: $@"
-diff --git a/ril/secril_config_svc/Android.bp b/ril/secril_config_svc/Android.bp
-index 266ad5b..80f92c9 100644
---- a/ril/secril_config_svc/Android.bp
-+++ b/ril/secril_config_svc/Android.bp
-@@ -16,6 +16,7 @@
- 
- cc_binary {
-     name: "secril_config_svc",
-+    stem: "secril_config_svc.p205",
-     vendor: true,
-     srcs: ["secril_config_svc.cpp"],
-     shared_libs: [
-diff --git a/ril/secril_config_svc/secril_config_svc.cpp b/ril/secril_config_svc/secril_config_svc.cpp
-index 46e42f6..270d3f4 100644
---- a/ril/secril_config_svc/secril_config_svc.cpp
-+++ b/ril/secril_config_svc/secril_config_svc.cpp
-@@ -22,24 +22,107 @@
- #include <android-base/strings.h>
- 
- #include <fstream>
-+#include <map>
- 
- #define EFS_OLD "/efs/"
- #define EFS_NEW "/mnt/vendor/efs/"
- #define FACTORY_PROP "factory.prop"
- #define TELEPHONY_PROP "telephony.prop"
- 
--void LoadProperties(std::string data) {
-+static constexpr const char* kFactoryDefaults =
-+        "ro.multisim.simslotcount=1\n"
-+        "ro.vendor.multisim.simslotcount=1\n"
-+        "persist.radio.multisim.config=ss\n";
-+
-+static constexpr const char* kTelephonyDefaults =
-+        "ro.vendor.radio.default_network=9\n"
-+        "ro.vendor.radio.default_network_by=telephony.prop_9\n"
-+        "ro.vendor.radio.voice_capable=1\n"
-+        "ro.vendor.telephony.force_legacy_voice_capability=1\n";
-+
-+using PropertyMap = std::map<std::string, std::string>;
-+
-+PropertyMap ParseProperties(const std::string& data) {
-+    PropertyMap properties;
-+
-     for (std::string line : android::base::Split(data, "\n")) {
--        if (line == "\0") break;
-+        if (line.empty() || line == "\0") continue;
- 
-         std::vector<std::string> parts = android::base::Split(line, "=");
-         if (parts.size() == 2) {
--            LOG(INFO) << "Setting property: " << line;
--            android::base::SetProperty(parts.at(0), parts.at(1));
-+            properties[parts.at(0)] = parts.at(1);
-         } else {
-             LOG(ERROR) << "Invalid data: " << line;
-         }
-     }
-+
-+    return properties;
-+}
-+
-+void EnsureProperty(PropertyMap* properties, const std::string& key, const std::string& value) {
-+    if (properties->find(key) == properties->end()) {
-+        (*properties)[key] = value;
-+    }
-+}
-+
-+std::string ResolveDefaultNetwork(const PropertyMap& properties) {
-+    static constexpr const char* kNetworkKeys[] = {
-+            "ro.vendor.radio.default_network",
-+            "ro.telephony.default_network",
-+            "ro.multisim.default_network",
-+    };
-+
-+    for (const char* key : kNetworkKeys) {
-+        // Build properties are the authority here; EFS telephony.prop can be stale.
-+        const std::string current = android::base::GetProperty(key, "");
-+        if (!current.empty()) {
-+            return current;
-+        }
-+    }
-+
-+    for (const char* key : kNetworkKeys) {
-+        auto it = properties.find(key);
-+        if (it != properties.end() && !it->second.empty()) {
-+            return it->second;
-+        }
-+    }
-+
-+    return "9";
-+}
-+
-+void ApplyFactoryFallbacks(PropertyMap* properties) {
-+    EnsureProperty(properties, "ro.multisim.simslotcount", "1");
-+    EnsureProperty(properties, "ro.vendor.multisim.simslotcount", "1");
-+    EnsureProperty(properties, "persist.radio.multisim.config", "ss");
-+}
-+
-+void ApplyTelephonyFallbacks(PropertyMap* properties) {
-+    const std::string defaultNetwork = ResolveDefaultNetwork(*properties);
-+
-+    (*properties)["ro.vendor.radio.default_network"] = defaultNetwork;
-+    (*properties)["ro.vendor.radio.default_network_by"] = "telephony.prop_" + defaultNetwork;
-+    EnsureProperty(properties, "ro.vendor.radio.voice_capable", "1");
-+    EnsureProperty(properties, "ro.vendor.telephony.force_legacy_voice_capability", "1");
-+}
-+
-+void LoadProperties(const PropertyMap& properties) {
-+    for (const auto& [key, value] : properties) {
-+        const std::string current = android::base::GetProperty(key, "");
-+        if (!current.empty()) {
-+            if (current == value) {
-+                LOG(INFO) << "Keeping property unchanged: " << key << "=" << value;
-+                continue;
-+            }
-+
-+            if (android::base::StartsWith(key, "ro.")) {
-+                LOG(INFO) << "Keeping existing read-only property: " << key << "=" << current;
-+                continue;
-+            }
-+        }
-+
-+        LOG(INFO) << "Setting property: " << key << "=" << value;
-+        android::base::SetProperty(key, value);
-+    }
- }
- 
- int main(int argc, char *argv[]) {
-@@ -58,13 +141,25 @@ int main(int argc, char *argv[]) {
- 
-     LOG(INFO) << "Loading properties from " << prop;
- 
-+    PropertyMap properties;
-     std::string content;
-     if (android::base::ReadFileToString(prop, &content)) {
--        LoadProperties(content.c_str());
-+        properties = ParseProperties(content);
-+        if (android::base::EndsWith(prop, FACTORY_PROP)) {
-+            ApplyFactoryFallbacks(&properties);
-+        } else if (android::base::EndsWith(prop, TELEPHONY_PROP)) {
-+            ApplyTelephonyFallbacks(&properties);
-+        }
-     } else if (android::base::EndsWith(prop, FACTORY_PROP)) {
-         LOG(WARNING) << "Could not read " << prop << ", setting defaults!";
--        LoadProperties("ro.vendor.multisim.simslotcount=1");
-+        properties = ParseProperties(kFactoryDefaults);
-+    } else if (android::base::EndsWith(prop, TELEPHONY_PROP)) {
-+        LOG(WARNING) << "Could not read " << prop << ", setting defaults!";
-+        properties = ParseProperties(kTelephonyDefaults);
-     } else {
-         LOG(WARNING) << "Could not read " << prop << "!";
-+        return 0;
-     }
-+
-+    LoadProperties(properties);
  }
 diff --git a/interfaces/camera/provider/4.0/Android.bp b/interfaces/camera/provider/4.0/Android.bp
 new file mode 100644
@@ -314,3 +109,12 @@ index 0000000..3fecafe
 +interface ISehCameraProvider extends android.hardware.camera.provider@2.6::ICameraProvider {
 +    sehGetCameraIdList() generates (Status status, vec<string> cameraDeviceNames);
 +};
+diff --git a/interfaces/current.txt b/interfaces/current.txt
+index 800bd6e..8e0c58e 100644
+--- a/interfaces/current.txt
++++ b/interfaces/current.txt
+@@ -2,3 +2,4 @@ d70c073053fc04425ee47b8ce56f01e984cd3af354c91fa9ce0e3833b84e2eda vendor.samsung.
+ e80adc3606e15e3a71e2b3451e1785287406dca19abd719064927c8477dbb7e7 vendor.samsung.hardware.radio@1.2::IRadio
+ 482cdc2795dd2d3c89f81f16496a180294b00f05efc0dec599f801823f30c270 vendor.samsung.hardware.radio@1.2::IRadioIndication
+ baea5e92105d0115d9b1167a21513b5d6c77fdbac78c2e53742b550d548ef8c5 vendor.samsung.hardware.radio@1.2::IRadioResponse
++431c5f6bef7fca53659b6262cc3fe443a098d40fadcfee17695f93c03dab1e78 vendor.samsung.hardware.camera.provider@4.0::ISehCameraProvider

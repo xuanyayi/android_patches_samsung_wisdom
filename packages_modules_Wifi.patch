@@ -1,0 +1,47 @@
+diff --git a/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java b/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
+index e11368e222..5f2f86fb9a 100644
+--- a/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
++++ b/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
+@@ -352,6 +352,12 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
+                 handleRemoteException(e, methodStr);
+             } catch (ServiceSpecificException e) {
+                 handleServiceSpecificException(e, methodStr);
++                ISupplicantStaIface existingIface = getExistingStaIfaceFromSupplicant(ifaceName);
++                if (existingIface != null) {
++                    Log.w(TAG, "Using existing supplicant STA iface " + ifaceName
++                            + " after addIface failed");
++                    return existingIface;
++                }
+             } catch (NoSuchElementException | IllegalArgumentException e) {
+                 Log.e(TAG, "Encountered exception at addIface: ", e);
+             }
+@@ -359,6 +365,29 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
+         }
+     }
+ 
++    /**
++     * Some vendor supplicants create the STA iface while returning an error when asked to add it.
++     * Reuse that iface so Wi-Fi can recover after a disable/enable cycle.
++     */
++    private ISupplicantStaIface getExistingStaIfaceFromSupplicant(@NonNull String ifaceName) {
++        synchronized (mLock) {
++            try {
++                for (IfaceInfo ifaceInfo : mISupplicant.listInterfaces()) {
++                    if (ifaceInfo.type == IfaceType.STA && ifaceName.equals(ifaceInfo.name)) {
++                        return mISupplicant.getStaInterface(ifaceName);
++                    }
++                }
++            } catch (RemoteException e) {
++                handleRemoteException(e, "getExistingStaIfaceFromSupplicant");
++            } catch (ServiceSpecificException e) {
++                handleServiceSpecificException(e, "getExistingStaIfaceFromSupplicant");
++            } catch (NoSuchElementException | IllegalArgumentException e) {
++                Log.e(TAG, "Encountered exception at getExistingStaIfaceFromSupplicant: ", e);
++            }
++            return null;
++        }
++    }
++
+     /**
+      * Teardown a STA interface for the specified iface name.
+      *

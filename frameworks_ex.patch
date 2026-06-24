@@ -1,0 +1,32 @@
+diff --git a/camera2/portability/src/com/android/ex/camera2/portability/AndroidCamera2AgentImpl.java b/camera2/portability/src/com/android/ex/camera2/portability/AndroidCamera2AgentImpl.java
+index 2fc4ad3..7df4391 100644
+--- a/camera2/portability/src/com/android/ex/camera2/portability/AndroidCamera2AgentImpl.java
++++ b/camera2/portability/src/com/android/ex/camera2/portability/AndroidCamera2AgentImpl.java
+@@ -1323,6 +1323,11 @@ class AndroidCamera2AgentImpl extends CameraAgent {
+ 
+         @Override
+         public Characteristics getCharacteristics(int cameraId) {
++            if (cameraId < 0 || cameraId >= mNumberOfCameras) {
++                Log.w(TAG, "Camera id out of range: " + cameraId + ", count=" + mNumberOfCameras);
++                return null;
++            }
++
+             String actualId = mCameraIds[cameraId];
+             try {
+                 CameraCharacteristics info = mCameraManager.getCameraCharacteristics(actualId);
+diff --git a/camera2/portability/src/com/android/ex/camera2/portability/AndroidCameraAgentImpl.java b/camera2/portability/src/com/android/ex/camera2/portability/AndroidCameraAgentImpl.java
+index a2b6299..1414a34 100644
+--- a/camera2/portability/src/com/android/ex/camera2/portability/AndroidCameraAgentImpl.java
++++ b/camera2/portability/src/com/android/ex/camera2/portability/AndroidCameraAgentImpl.java
+@@ -173,6 +173,11 @@ class AndroidCameraAgentImpl extends CameraAgent {
+ 
+         @Override
+         public Characteristics getCharacteristics(int cameraId) {
++            if (cameraId < 0 || cameraId >= mNumberOfCameras) {
++                Log.w(TAG, "Camera id out of range: " + cameraId + ", count=" + mNumberOfCameras);
++                return null;
++            }
++
+             Camera.CameraInfo info = mCameraInfos[cameraId];
+             if (info != null) {
+                 return new AndroidCharacteristics(info);

@@ -1,34 +1,66 @@
 diff --git a/sysmeminfo.cpp b/sysmeminfo.cpp
-index b7a9c70..e5640a3 100644
+index f64becc..339c912 100644
 --- a/sysmeminfo.cpp
 +++ b/sysmeminfo.cpp
-@@ -324,9 +324,11 @@ bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t
+@@ -17,6 +17,7 @@
+ #include <ctype.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <sys/stat.h>
+ #include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -50,6 +51,13 @@
+ namespace android {
+ namespace meminfo {
+ 
++#if defined(__ANDROID__) && !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
++static bool FileExists(const char* path) {
++    struct stat st;
++    return stat(path, &st) == 0;
++}
++#endif
++
+ bool SysMemInfo::ReadMemInfo(const char* path) {
+     return ReadMemInfo(path, SysMemInfo::kDefaultSysMemInfoTags.size(),
+                        &*SysMemInfo::kDefaultSysMemInfoTags.begin(),
+@@ -379,13 +387,15 @@ bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t
  #if defined(__ANDROID__) && !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
-     static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpu_mem_gpu_mem_total_map";
+     static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpuMem_gpu_mem_total_map";
  
 -    // Use the read-only wrapper BpfMapRO to properly retrieve the read-only map.
 -    auto map = bpf::BpfMapRO<uint64_t, uint64_t>(kBpfGpuMemTotalMap);
 -    if (!map.isValid()) {
-+    // BpfMapRO(path) aborts when the pinned map is missing. Older kernels may
-+    // not provide this GPU memory map, so use init() and report failure instead.
-+    bpf::BpfMapRO<uint64_t, uint64_t> map;
-+    auto status = map.init(kBpfGpuMemTotalMap);
-+    if (!status.ok()) {
++    if (!FileExists(kBpfGpuMemTotalMap)) {
          LOG(ERROR) << "Can't open file: " << kBpfGpuMemTotalMap;
-         return false;
+-        return false;
++        if (out) out->clear();
++        return true;
      }
-@@ -378,9 +380,11 @@ bool ReadProcessGpuUsageKb([[maybe_unused]] uint32_t pid, [[maybe_unused]] uint3
+ 
++    // Use the read-only wrapper BpfMapRO to properly retrieve the read-only map.
++    auto map = bpf::BpfMapRO<uint64_t, uint64_t>(kBpfGpuMemTotalMap);
++
+     if (!out) {
+         LOG(ERROR) << "ReadPerProcessGpuMem: out param is null";
+         return false;
+@@ -433,13 +443,15 @@ bool ReadProcessGpuUsageKb([[maybe_unused]] uint32_t pid, [[maybe_unused]] uint3
      // BPF Key [32-bits GPU ID | 32-bits PID]
      uint64_t kBpfKeyGpuUsage = ((uint64_t)gpu_id << 32) | pid;
  
 -    // Use the read-only wrapper BpfMapRO to properly retrieve the read-only map.
 -    auto map = bpf::BpfMapRO<uint64_t, uint64_t>(kBpfGpuMemTotalMap);
 -    if (!map.isValid()) {
-+    // BpfMapRO(path) aborts when the pinned map is missing. Older kernels may
-+    // not provide this GPU memory map, so use init() and report failure instead.
-+    bpf::BpfMapRO<uint64_t, uint64_t> map;
-+    auto status = map.init(kBpfGpuMemTotalMap);
-+    if (!status.ok()) {
++    if (!FileExists(kBpfGpuMemTotalMap)) {
          LOG(ERROR) << "Can't open file: " << kBpfGpuMemTotalMap;
-         return false;
+-        return false;
++        if (size) *size = 0;
++        return true;
      }
+ 
++    // Use the read-only wrapper BpfMapRO to properly retrieve the read-only map.
++    auto map = bpf::BpfMapRO<uint64_t, uint64_t>(kBpfGpuMemTotalMap);
++
+     auto res = map.readValue(kBpfKeyGpuUsage);
+ 
+     if (res.ok()) {

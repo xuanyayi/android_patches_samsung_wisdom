@@ -1,113 +1,166 @@
-diff --git a/services/gpuservice/gpuwork/GpuWork.cpp b/services/gpuservice/gpuwork/GpuWork.cpp
-index 974ae38b13..b2c3bf1eda 100644
---- a/services/gpuservice/gpuwork/GpuWork.cpp
-+++ b/services/gpuservice/gpuwork/GpuWork.cpp
-@@ -66,10 +66,11 @@ bool equalGpuIdUid(const android::gpuwork::GpuIdUid& l, const android::gpuwork::
- // Gets a BPF map from |mapPath|.
- template <class Key, class Value>
- bool getBpfMap(const char* mapPath, bpf::BpfMap<Key, Value>* out) {
--    errno = 0;
--    auto map = bpf::BpfMap<Key, Value>(mapPath);
--    if (!map.isValid()) {
--        ALOGW("Failed to create bpf map from %s [%d(%s)]", mapPath, errno, strerror(errno));
-+    bpf::BpfMap<Key, Value> map;
-+    auto status = map.init(mapPath);
-+    if (!status.ok()) {
-+        ALOGW("Failed to create bpf map from %s [%s]", mapPath,
-+              status.error().message().c_str());
-         return false;
-     }
-     *out = std::move(map);
+diff --git a/libs/ui/GraphicBufferMapper.cpp b/libs/ui/GraphicBufferMapper.cpp
+index 7b5a27d9e1..e9c6f75eda 100644
+--- a/libs/ui/GraphicBufferMapper.cpp
++++ b/libs/ui/GraphicBufferMapper.cpp
+@@ -179,6 +179,16 @@ status_t GraphicBufferMapper::unlock(buffer_handle_t handle, base::unique_fd* ou
+     return OK;
+ }
+ 
++extern "C" __attribute__((visibility("default"))) status_t
++_ZN7android19GraphicBufferMapper6unlockEPK13native_handle(GraphicBufferMapper* mapper,
++                                                          buffer_handle_t handle) {
++    if (!mapper) {
++        return BAD_VALUE;
++    }
++
++    return mapper->unlock(handle, nullptr);
++}
++
+ status_t GraphicBufferMapper::lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds,
+                                    void** vaddr) {
+     auto result = lock(handle, static_cast<int64_t>(usage), bounds);
+@@ -214,6 +224,19 @@ status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint64_t produce
+                      bounds, vaddr, fenceFd);
+ }
+ 
++status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint64_t producerUsage,
++                                        uint64_t consumerUsage, const Rect& bounds, void** vaddr,
++                                        int fenceFd, int* outBytesPerPixel,
++                                        int* outBytesPerStride) {
++    if (outBytesPerPixel) {
++        *outBytesPerPixel = 0;
++    }
++    if (outBytesPerStride) {
++        *outBytesPerStride = 0;
++    }
++    return lockAsync(handle, producerUsage, consumerUsage, bounds, vaddr, fenceFd);
++}
++
+ status_t GraphicBufferMapper::lockAsyncYCbCr(buffer_handle_t handle, uint32_t usage,
+                                              const Rect& bounds, android_ycbcr* ycbcr,
+                                              int fenceFd) {
+diff --git a/libs/ui/include/ui/GraphicBufferMapper.h b/libs/ui/include/ui/GraphicBufferMapper.h
+index 91aabe9f12..6d334d1f26 100644
+--- a/libs/ui/include/ui/GraphicBufferMapper.h
++++ b/libs/ui/include/ui/GraphicBufferMapper.h
+@@ -105,6 +105,10 @@ public:
+     status_t lockAsync(buffer_handle_t handle, uint64_t producerUsage, uint64_t consumerUsage,
+                        const Rect& bounds, void** vaddr, int fenceFd);
+ 
++    status_t lockAsync(buffer_handle_t handle, uint64_t producerUsage, uint64_t consumerUsage,
++                       const Rect& bounds, void** vaddr, int fenceFd, int* outBytesPerPixel,
++                       int* outBytesPerStride);
++
+     status_t lockAsyncYCbCr(buffer_handle_t handle,
+             uint32_t usage, const Rect& bounds, android_ycbcr *ycbcr,
+             int fenceFd);
+@@ -191,4 +195,3 @@ private:
+ } // namespace android
+ 
+ #endif // ANDROID_UI_BUFFER_MAPPER_H
+-
+diff --git a/services/gpuservice/gpuservice.rc b/services/gpuservice/gpuservice.rc
+index 0da8bd3812..e7a8dbdf32 100644
+--- a/services/gpuservice/gpuservice.rc
++++ b/services/gpuservice/gpuservice.rc
+@@ -2,3 +2,5 @@ service gpu /system/bin/gpuservice
+     class core
+     user gpu_service
+     group graphics readtracefs
++    disabled
++    oneshot
+diff --git a/services/inputflinger/PointerChoreographer.cpp b/services/inputflinger/PointerChoreographer.cpp
+index 811692f1bf..e2b8885cae 100644
+--- a/services/inputflinger/PointerChoreographer.cpp
++++ b/services/inputflinger/PointerChoreographer.cpp
+@@ -506,7 +506,7 @@ void PointerChoreographer::processStylusHoverEventLocked(const NotifyMotionArgs&
+         // TODO(b/315815559): Do not fade and reset the icon if the hover exit will be followed
+         //   immediately by a DOWN event.
+         pc.fade(PointerControllerInterface::Transition::IMMEDIATE);
+-        pc.updatePointerIcon(mShowTouchesEnabled ? PointerIconStyle::TYPE_SPOT_HOVER
++        pc.updatePointerIcon(mShowTouchesEnabled ? PointerIconStyle::TYPE_CROSSHAIR
+                                                  : PointerIconStyle::TYPE_NOT_SPECIFIED);
+     } else if (canUnfadeOnDisplay(args.displayId)) {
+         pc.unfade(PointerControllerInterface::Transition::IMMEDIATE);
+@@ -904,10 +904,11 @@ bool PointerChoreographer::setPointerIcon(
+         auto it = mStylusPointersByDevice.find(deviceId);
+         if (it != mStylusPointersByDevice.end()) {
+             if (mShowTouchesEnabled) {
+-                // If an app doesn't override the icon for the hovering stylus, show the hover icon.
++                // If an app doesn't override the icon for the hovering stylus, show a compact dot
++                // instead of the touch hover ring.
+                 auto* style = std::get_if<PointerIconStyle>(&icon);
+                 if (style != nullptr && *style == PointerIconStyle::TYPE_NOT_SPECIFIED) {
+-                    *style = PointerIconStyle::TYPE_SPOT_HOVER;
++                    *style = PointerIconStyle::TYPE_CROSSHAIR;
+                 }
+             }
+             setIconForController(icon, *it->second);
 diff --git a/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp b/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
-index cc323ad42e..8585f8e842 100644
+index fd8224a608..ad4adf7736 100644
 --- a/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
 +++ b/services/inputflinger/reader/mapper/MultiTouchInputMapper.cpp
-@@ -259,6 +259,7 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
+@@ -66,6 +66,7 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
      size_t outCount = 0;
      BitSet32 newPointerIdBits;
      mHavePointerIds = true;
 +    const bool isSamsungSPen = isSamsungSPenDevice();
  
      for (size_t inIndex = 0; inIndex < inCount; inIndex++) {
-         const MultiTouchMotionAccumulator::Slot* inSlot =
-@@ -308,6 +309,9 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
-                 outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_FINGER;
-             }
+         const MultiTouchMotionAccumulator::Slot& inSlot =
+@@ -130,6 +131,9 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, RawState* outState) {
+         if (mShouldSimulateStylusWithTouch && outPointer.toolType == ToolType::FINGER) {
+             outPointer.toolType = ToolType::STYLUS;
          }
-+        if (isSamsungSPen && outPointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER) {
-+            outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_STYLUS;
++        if (isSamsungSPen && outPointer.toolType == ToolType::FINGER) {
++            outPointer.toolType = ToolType::STYLUS;
 +        }
-         if (shouldSimulateStylusWithTouch() &&
-             outPointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER) {
-             outPointer.toolType = AMOTION_EVENT_TOOL_TYPE_STYLUS;
-@@ -389,7 +393,7 @@ void MultiTouchInputMapper::configureRawPointerAxes() {
+ 
+         bool isHovering = mTouchButtonAccumulator.getToolType() != ToolType::MOUSE &&
+                 (mTouchButtonAccumulator.isHovering() ||
+@@ -226,7 +230,11 @@ void MultiTouchInputMapper::configureRawPointerAxes() {
  
  bool MultiTouchInputMapper::hasStylus() const {
-     return mMultiTouchMotionAccumulator.hasStylus() || mTouchButtonAccumulator.hasStylus() ||
--            shouldSimulateStylusWithTouch();
-+            shouldSimulateStylusWithTouch() || isSamsungSPenDevice();
- }
- 
- bool MultiTouchInputMapper::shouldSimulateStylusWithTouch() const {
-@@ -399,4 +403,8 @@ bool MultiTouchInputMapper::shouldSimulateStylusWithTouch() const {
-             mParameters.deviceType == Parameters::DeviceType::TOUCH_SCREEN;
- }
- 
-+bool MultiTouchInputMapper::isSamsungSPenDevice() const {
-+    return getDeviceName() == "sec_e-pen";
+     return mStylusMtToolSeen || mTouchButtonAccumulator.hasStylus() ||
+-            mShouldSimulateStylusWithTouch;
++            mShouldSimulateStylusWithTouch || isSamsungSPenDevice();
 +}
 +
++bool MultiTouchInputMapper::isSamsungSPenDevice() const {
++    return getDeviceName() == "sec_e-pen";
+ }
+ 
  } // namespace android
 diff --git a/services/inputflinger/reader/mapper/MultiTouchInputMapper.h b/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
-index e7d935082a..54f17da130 100644
+index cca23279c5..494298d59e 100644
 --- a/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
 +++ b/services/inputflinger/reader/mapper/MultiTouchInputMapper.h
-@@ -110,6 +110,7 @@ private:
-     // "adb shell setprop persist.debug.input.simulate_stylus_with_touch true",
-     // and requires a reboot to take effect.
-     inline bool shouldSimulateStylusWithTouch() const;
+@@ -63,6 +63,8 @@ private:
+     // After enabling, the touchscreen will need to be reconfigured. A reconfiguration usually
+     // happens when turning the screen on/off or by rotating the device orientation.
+     bool mShouldSimulateStylusWithTouch{false};
++
 +    bool isSamsungSPenDevice() const;
- 
-     // If the slot is in use, return the bit id. Return std::nullopt otherwise.
-     std::optional<int32_t> getActiveBitId(const MultiTouchMotionAccumulator::Slot& inSlot);
-@@ -122,4 +123,4 @@ private:
+ };
  
  } // namespace android
- 
--#endif // _UI_INPUTREADER_MULTI_TOUCH_INPUT_MAPPER_H
-\ No newline at end of file
-+#endif // _UI_INPUTREADER_MULTI_TOUCH_INPUT_MAPPER_H
 diff --git a/services/inputflinger/reader/mapper/TouchInputMapper.cpp b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
-index 5a7016780a..7102a1dcd7 100644
+index 5c90cbb6ce..04d84c4224 100644
 --- a/services/inputflinger/reader/mapper/TouchInputMapper.cpp
 +++ b/services/inputflinger/reader/mapper/TouchInputMapper.cpp
-@@ -71,6 +71,17 @@ inline static int32_t signExtendNybble(int32_t value) {
+@@ -100,6 +100,11 @@ inline static int32_t signExtendNybble(int32_t value) {
      return value >= 8 ? value - 16 : value;
  }
  
-+static bool isStylusPointerToolType(int32_t toolType) {
-+    return toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
-+            toolType == AMOTION_EVENT_TOOL_TYPE_ERASER;
++static bool shouldSuppressWhenStylusIsActive(ToolType toolType) {
++    return toolType == ToolType::FINGER || toolType == ToolType::UNKNOWN ||
++            toolType == ToolType::PALM;
 +}
 +
-+static bool shouldSuppressWhenStylusIsActive(int32_t toolType) {
-+    return toolType == AMOTION_EVENT_TOOL_TYPE_FINGER ||
-+            toolType == AMOTION_EVENT_TOOL_TYPE_UNKNOWN ||
-+            toolType == AMOTION_EVENT_TOOL_TYPE_PALM;
-+}
-+
- // --- RawPointerAxes ---
- 
- RawPointerAxes::RawPointerAxes() {
-@@ -1046,6 +1057,7 @@ void TouchInputMapper::configureInputDevice(nsecs_t when, bool* outResetNeeded)
-     // preserve the cursor position.
-     if (mDeviceMode == DeviceMode::POINTER ||
-         (mDeviceMode == DeviceMode::DIRECT && mConfig.showTouches) ||
-+        (mDeviceMode == DeviceMode::DIRECT && (mSource & AINPUT_SOURCE_STYLUS) != 0) ||
-         (mParameters.deviceType == Parameters::DeviceType::POINTER &&
-          mConfig.pointerCaptureRequest.enable)) {
-         if (mPointerController == nullptr) {
-@@ -1612,6 +1624,10 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
+ static ui::Size getNaturalDisplaySize(const DisplayViewport& viewport) {
+     ui::Size rotatedDisplaySize{viewport.deviceWidth, viewport.deviceHeight};
+     if (viewport.orientation == ui::ROTATION_90 || viewport.orientation == ui::ROTATION_270) {
+@@ -1569,6 +1574,10 @@ std::list<NotifyArgs> TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t re
      // Apply stylus pressure to current cooked state.
      applyExternalStylusTouchState(when);
  
@@ -116,47 +169,27 @@ index 5a7016780a..7102a1dcd7 100644
 +    }
 +
      // Synthesize key down from raw buttons if needed.
-     synthesizeButtonKeys(getContext(), AKEY_EVENT_ACTION_DOWN, when, readTime, getDeviceId(),
-                          mSource, mViewport.displayId, policyFlags, mLastCookedState.buttonState,
-@@ -1623,8 +1639,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
-             uint32_t id = idBits.clearFirstMarkedBit();
-             const RawPointerData::Pointer& pointer =
-                     mCurrentRawState.rawPointerData.pointerForId(id);
--            if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
--                pointer.toolType == AMOTION_EVENT_TOOL_TYPE_ERASER) {
-+            if (isStylusPointerToolType(pointer.toolType)) {
-                 mCurrentCookedState.stylusIdBits.markBit(id);
-             } else if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_FINGER ||
-                        pointer.toolType == AMOTION_EVENT_TOOL_TYPE_UNKNOWN) {
-@@ -1637,8 +1652,7 @@ void TouchInputMapper::cookAndDispatch(nsecs_t when, nsecs_t readTime) {
-             uint32_t id = idBits.clearFirstMarkedBit();
-             const RawPointerData::Pointer& pointer =
-                     mCurrentRawState.rawPointerData.pointerForId(id);
--            if (pointer.toolType == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
--                pointer.toolType == AMOTION_EVENT_TOOL_TYPE_ERASER) {
-+            if (isStylusPointerToolType(pointer.toolType)) {
-                 mCurrentCookedState.stylusIdBits.markBit(id);
-             }
-         }
-@@ -2057,7 +2071,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
-         int32_t metaState = getContext()->getGlobalMetaState();
+     out += synthesizeButtonKeys(getContext(), AKEY_EVENT_ACTION_DOWN, when, readTime, getDeviceId(),
+                                 mSource, mViewport.displayId, policyFlags,
+@@ -2107,7 +2116,7 @@ std::list<NotifyArgs> TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when,
          if (!mSentHoverEnter) {
-             dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_ENTER,
--                           0, 0, metaState, mCurrentRawState.buttonState, 0,
-+                           0, 0, metaState, mCurrentCookedState.buttonState, 0,
-                            mCurrentCookedState.cookedPointerData.pointerProperties,
-                            mCurrentCookedState.cookedPointerData.pointerCoords,
-                            mCurrentCookedState.cookedPointerData.idToIndex,
-@@ -2067,7 +2081,7 @@ void TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
-         }
+             out.push_back(dispatchMotion(when, readTime, policyFlags, mSource,
+                                          AMOTION_EVENT_ACTION_HOVER_ENTER, 0, 0, metaState,
+-                                         mCurrentRawState.buttonState, 0,
++                                         mCurrentCookedState.buttonState, 0,
+                                          mCurrentCookedState.cookedPointerData.pointerProperties,
+                                          mCurrentCookedState.cookedPointerData.pointerCoords,
+                                          mCurrentCookedState.cookedPointerData.idToIndex,
+@@ -2119,7 +2128,7 @@ std::list<NotifyArgs> TouchInputMapper::dispatchHoverEnterAndMove(nsecs_t when,
  
-         dispatchMotion(when, readTime, policyFlags, mSource, AMOTION_EVENT_ACTION_HOVER_MOVE, 0, 0,
--                       metaState, mCurrentRawState.buttonState, 0,
-+                       metaState, mCurrentCookedState.buttonState, 0,
-                        mCurrentCookedState.cookedPointerData.pointerProperties,
-                        mCurrentCookedState.cookedPointerData.pointerCoords,
-                        mCurrentCookedState.cookedPointerData.idToIndex,
-@@ -2389,6 +2403,49 @@ void TouchInputMapper::cookPointerData() {
+         out.push_back(dispatchMotion(when, readTime, policyFlags, mSource,
+                                      AMOTION_EVENT_ACTION_HOVER_MOVE, 0, 0, metaState,
+-                                     mCurrentRawState.buttonState, 0,
++                                     mCurrentCookedState.buttonState, 0,
+                                      mCurrentCookedState.cookedPointerData.pointerProperties,
+                                      mCurrentCookedState.cookedPointerData.pointerCoords,
+                                      mCurrentCookedState.cookedPointerData.idToIndex,
+@@ -2436,6 +2445,49 @@ void TouchInputMapper::cookPointerData() {
      }
  }
  
@@ -168,7 +201,7 @@ index 5a7016780a..7102a1dcd7 100644
 +        const uint32_t id = currentPointerData.pointerProperties[i].id;
 +        if ((currentPointerData.touchingIdBits.hasBit(id) ||
 +             currentPointerData.hoveringIdBits.hasBit(id)) &&
-+            isStylusPointerToolType(currentPointerData.pointerProperties[i].toolType)) {
++            isStylusToolType(currentPointerData.pointerProperties[i].toolType)) {
 +            hasActiveStylus = true;
 +            break;
 +        }
@@ -194,8 +227,8 @@ index 5a7016780a..7102a1dcd7 100644
 +        }
 +
 +        if (outCount != i) {
-+            currentPointerData.pointerProperties[outCount].copyFrom(properties);
-+            currentPointerData.pointerCoords[outCount].copyFrom(currentPointerData.pointerCoords[i]);
++            currentPointerData.pointerProperties[outCount] = properties;
++            currentPointerData.pointerCoords[outCount] = currentPointerData.pointerCoords[i];
 +        }
 +        currentPointerData.idToIndex[id] = outCount;
 +        outCount++;
@@ -203,35 +236,48 @@ index 5a7016780a..7102a1dcd7 100644
 +    currentPointerData.pointerCount = outCount;
 +}
 +
- void TouchInputMapper::dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                                             PointerUsage pointerUsage) {
-     if (pointerUsage != mPointerUsage) {
-@@ -3723,6 +3780,16 @@ void TouchInputMapper::dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t p
-     float yCursorPosition = AMOTION_EVENT_INVALID_CURSOR_POSITION;
-     if (mDeviceMode == DeviceMode::POINTER) {
-         mPointerController->getPosition(&xCursorPosition, &yCursorPosition);
-+    } else if (mDeviceMode == DeviceMode::DIRECT && mPointerController != nullptr && (source & AINPUT_SOURCE_STYLUS) != 0) {
-+        if (action == AMOTION_EVENT_ACTION_HOVER_ENTER || action == AMOTION_EVENT_ACTION_HOVER_MOVE) {
-+            xCursorPosition = pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_X);
-+            yCursorPosition = pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_Y);
-+            mPointerController->setPosition(xCursorPosition, yCursorPosition);
-+            mPointerController->setPresentation(PointerControllerInterface::Presentation::POINTER);
-+            mPointerController->unfade(PointerControllerInterface::Transition::IMMEDIATE);
-+        } else if (action == AMOTION_EVENT_ACTION_HOVER_EXIT) {
-+            mPointerController->fade(PointerControllerInterface::Transition::GRADUAL);
-+        }
-     }
-     const int32_t displayId = getAssociatedDisplayId().value_or(ADISPLAY_ID_NONE);
-     const int32_t deviceId = getDeviceId();
+ std::list<NotifyArgs> TouchInputMapper::dispatchPointerUsage(nsecs_t when, nsecs_t readTime,
+                                                              uint32_t policyFlags,
+                                                              PointerUsage pointerUsage) {
 diff --git a/services/inputflinger/reader/mapper/TouchInputMapper.h b/services/inputflinger/reader/mapper/TouchInputMapper.h
-index 2937bf88d4..62b06d8b41 100644
+index ef0e02f40c..e600e314c0 100644
 --- a/services/inputflinger/reader/mapper/TouchInputMapper.h
 +++ b/services/inputflinger/reader/mapper/TouchInputMapper.h
-@@ -764,6 +764,7 @@ private:
-     void dispatchButtonPress(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-     const BitSet32& findActiveIdBits(const CookedPointerData& cookedPointerData);
-     void cookPointerData();
-+    void suppressFingerPointersWhenStylusIsActive();
-     void abortTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+@@ -798,6 +798,8 @@ private:
  
-     void dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
+     std::pair<int32_t, float> getFastestFinger();
+ 
++    void suppressFingerPointersWhenStylusIsActive();
++
+     void prepareMultiFingerPointerGestures(nsecs_t when, bool* outCancelPreviousGesture,
+                                            bool* outFinishPreviousGesture);
+ 
+diff --git a/services/inputflinger/tests/PointerChoreographer_test.cpp b/services/inputflinger/tests/PointerChoreographer_test.cpp
+index 27da3d33f9..1ab89a3b0e 100644
+--- a/services/inputflinger/tests/PointerChoreographer_test.cpp
++++ b/services/inputflinger/tests/PointerChoreographer_test.cpp
+@@ -980,7 +980,7 @@ TEST_F(PointerChoreographerTest, WhenTouchDeviceIsResetClearsSpots) {
+ 
+ /**
+  * When both "show touches" and "stylus hover icons" are enabled, if the app doesn't specify an
+- * icon for the hovering stylus, fall back to using the spot hover icon.
++ * icon for the hovering stylus, fall back to using the compact crosshair dot.
+  */
+ TEST_F(PointerChoreographerTest, ShowTouchesOverridesUnspecifiedStylusIcon) {
+     mChoreographer.setShowTouchesEnabled(true);
+@@ -999,13 +999,13 @@ TEST_F(PointerChoreographerTest, ShowTouchesOverridesUnspecifiedStylusIcon) {
+     auto pc = assertPointerControllerCreated(ControllerType::STYLUS);
+ 
+     mChoreographer.setPointerIcon(PointerIconStyle::TYPE_NOT_SPECIFIED, DISPLAY_ID, DEVICE_ID);
+-    pc->assertPointerIconSet(PointerIconStyle::TYPE_SPOT_HOVER);
++    pc->assertPointerIconSet(PointerIconStyle::TYPE_CROSSHAIR);
+ 
+     mChoreographer.setPointerIcon(PointerIconStyle::TYPE_ARROW, DISPLAY_ID, DEVICE_ID);
+     pc->assertPointerIconSet(PointerIconStyle::TYPE_ARROW);
+ 
+     mChoreographer.setPointerIcon(PointerIconStyle::TYPE_NOT_SPECIFIED, DISPLAY_ID, DEVICE_ID);
+-    pc->assertPointerIconSet(PointerIconStyle::TYPE_SPOT_HOVER);
++    pc->assertPointerIconSet(PointerIconStyle::TYPE_CROSSHAIR);
+ }
+ 
+ using StylusFixtureParam =

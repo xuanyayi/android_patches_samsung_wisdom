@@ -1,0 +1,362 @@
+diff --git a/audio_route/audio_route.c b/audio_route/audio_route.c
+index a28fa65e..c0480fdb 100644
+--- a/audio_route/audio_route.c
++++ b/audio_route/audio_route.c
+@@ -20,8 +20,10 @@
+ 
+ #include <errno.h>
+ #include <expat.h>
++#include <limits.h>
+ #include <stdbool.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+ 
+ #include <log/log.h>
+@@ -32,6 +34,59 @@
+ #define MIXER_XML_PATH "/system/etc/mixer_paths.xml"
+ #define INITIAL_MIXER_PATH_SIZE 8
+ 
++enum {
++    DAI_LINK_PLAYBACK,
++    DAI_LINK_PLAYBACK_LOW,
++    DAI_LINK_PLAYBACK_DEEP,
++    DAI_LINK_PLAYBACK_OFFLOAD,
++    DAI_LINK_PLAYBACK_AUX_DIGITAL,
++    DAI_LINK_PLAYBACK_DIRECT,
++    DAI_LINK_PLAYBACK_DEEP_DIRECT,
++    DAI_LINK_PLAYBACK_TELEPHONYTX,
++    DAI_LINK_CAPTURE,
++    DAI_LINK_BASEBAND,
++    DAI_LINK_BASEBAND_CAPTURE,
++    DAI_LINK_BLUETOOTH,
++    DAI_LINK_BLUETOOTH_CAPTURE,
++    DAI_LINK_VTS_CAPTURE,
++    DAI_LINK_VTS_SEAMLESS_CAPTURE,
++    DAI_LINK_CALL_REC_CAPTURE,
++    DAI_LINK_FMRADIO,
++    DAI_LINK_FMRADIO_CAPTURE,
++    DAI_LINK_CODEC_DUMP,
++    DAI_LINK_ABOX_PCM_DUMP_CARD,
++    DAI_LINK_CAPTURE_CALLMIC,
++    DAI_LINK_CALL_FORWARDING_CAPTURE,
++    DAI_LINK_TELEPHONYRX_CAPTURE,
++    DAI_LINK_COUNT,
++};
++
++static const char *const dai_link_names[DAI_LINK_COUNT] = {
++    [DAI_LINK_PLAYBACK] = "playback_link",
++    [DAI_LINK_PLAYBACK_LOW] = "playback_low_link",
++    [DAI_LINK_PLAYBACK_DEEP] = "playback_deep_link",
++    [DAI_LINK_PLAYBACK_OFFLOAD] = "playback_offload_link",
++    [DAI_LINK_PLAYBACK_AUX_DIGITAL] = "playback_aux_digital_link",
++    [DAI_LINK_PLAYBACK_DIRECT] = "playback_direct_link",
++    [DAI_LINK_PLAYBACK_DEEP_DIRECT] = "playback_deep_direct_link",
++    [DAI_LINK_PLAYBACK_TELEPHONYTX] = "playback_telephonytx_link",
++    [DAI_LINK_CAPTURE] = "capture_link",
++    [DAI_LINK_BASEBAND] = "baseband_link",
++    [DAI_LINK_BASEBAND_CAPTURE] = "baseband_capture_link",
++    [DAI_LINK_BLUETOOTH] = "bluetooth_link",
++    [DAI_LINK_BLUETOOTH_CAPTURE] = "bluetooth_capture_link",
++    [DAI_LINK_VTS_CAPTURE] = "vts_capture_link",
++    [DAI_LINK_VTS_SEAMLESS_CAPTURE] = "vts_seamless_capture_link",
++    [DAI_LINK_CALL_REC_CAPTURE] = "call_rec_capture_link",
++    [DAI_LINK_FMRADIO] = "fmradio_link",
++    [DAI_LINK_FMRADIO_CAPTURE] = "fmradio_capture_link",
++    [DAI_LINK_CODEC_DUMP] = "codec_dump_link",
++    [DAI_LINK_ABOX_PCM_DUMP_CARD] = "abox_pcm_dump_card",
++    [DAI_LINK_CAPTURE_CALLMIC] = "capture_callmic_link",
++    [DAI_LINK_CALL_FORWARDING_CAPTURE] = "call_forwarding_capture_link",
++    [DAI_LINK_TELEPHONYRX_CAPTURE] = "telephonyrx_capture_link",
++};
++
+ enum update_direction {
+     DIRECTION_FORWARD,
+     DIRECTION_REVERSE,
+@@ -86,6 +141,8 @@ struct audio_route {
+     unsigned int num_mixer_ctls;
+     struct mixer_state *mixer_state;
+ 
++    int dai_link[DAI_LINK_COUNT];
++
+     unsigned int mixer_path_size;
+     unsigned int num_mixer_paths;
+     struct mixer_path *mixer_path;
+@@ -95,9 +152,12 @@ struct config_parse_state {
+     struct audio_route *ar;
+     struct mixer_path *path;
+     int level;
++    const char *xml_path;
+     bool enum_mixer_numeric_fallback;
+ };
+ 
++static int parse_xml(struct audio_route *ar, const char *xml_path);
++
+ /* path functions */
+ 
+ static bool is_supported_ctl_type(enum mixer_ctl_type type)
+@@ -460,6 +520,66 @@ static bool safe_strtol(const char *str, long *val)
+     return true;
+ }
+ 
++static int dai_link_index_for_name(const char *name)
++{
++    unsigned int i;
++
++    for (i = 0; i < DAI_LINK_COUNT; i++)
++        if (strcmp(name, dai_link_names[i]) == 0)
++            return i;
++
++    return -1;
++}
++
++static int add_dai_link(struct audio_route *ar, const char *name, const char *value)
++{
++    int index;
++    long link;
++
++    index = dai_link_index_for_name(name);
++    if (index < 0)
++        return 0;
++
++    if (!safe_strtol(value, &link) || link < -1 || link > INT_MAX) {
++        ALOGE("Invalid dai link value '%s' for '%s'", value, name);
++        return -1;
++    }
++
++    ar->dai_link[index] = link;
++
++    return 0;
++}
++
++static int include_xml(struct audio_route *ar, const char *parent_xml_path, const char *include_path)
++{
++    char resolved_path[PATH_MAX];
++    const char *slash;
++    size_t dir_len;
++
++    if (!include_path || include_path[0] == '\0')
++        return -1;
++
++    if (include_path[0] == '/')
++        return parse_xml(ar, include_path);
++
++    if (!parent_xml_path)
++        return parse_xml(ar, include_path);
++
++    slash = strrchr(parent_xml_path, '/');
++    if (!slash)
++        return parse_xml(ar, include_path);
++
++    dir_len = slash - parent_xml_path + 1;
++    if (dir_len + strlen(include_path) >= sizeof(resolved_path)) {
++        ALOGE("Include path is too long: %s/%s", parent_xml_path, include_path);
++        return -1;
++    }
++
++    memcpy(resolved_path, parent_xml_path, dir_len);
++    strcpy(resolved_path + dir_len, include_path);
++    return parse_xml(ar, resolved_path);
++}
++
+ /* mixer helper function */
+ static int mixer_enum_string_to_value(struct mixer_ctl *ctl, const char *string,
+                                       bool allow_numeric_fallback)
+@@ -528,6 +648,16 @@ static void start_tag(void *data, const XML_Char *tag_name,
+         state->enum_mixer_numeric_fallback =
+                 attr_enum_mixer_numeric_fallback != NULL &&
+                 strcmp(attr_enum_mixer_numeric_fallback, "true") == 0 ;
++    } else if (strcmp(tag_name, "include") == 0) {
++        if (attr_name == NULL) {
++            ALOGE("Unnamed include!");
++        } else {
++            include_xml(ar, state->xml_path, attr_name);
++        }
++    } else if (strcmp(tag_name, "pcmdai") == 0) {
++        for (i = 0; attr[i]; i += 2) {
++            add_dai_link(ar, attr[i], attr[i + 1]);
++        }
+     } else if (strcmp(tag_name, "path") == 0) {
+         if (attr_name == NULL) {
+             ALOGE("Unnamed path!");
+@@ -580,6 +710,13 @@ static void start_tag(void *data, const XML_Char *tag_name,
+                 for (i = 0; i < num_values; i++) {
+                     attr_sub_value = strtok_r((char *)attr_value, " ", &test_r);
+                     if (attr_sub_value == NULL) {
++                        if (!attr_id && i == 1) {
++                            unsigned int j;
++
++                            for (j = 1; j < num_values; j++)
++                                value_array[j] = value_array[0];
++                            break;
++                        }
+                         ALOGE("expect %d values but only %d specified for ctl %s",
+                             num_values, i, attr_name);
+                         goto done;
+@@ -1006,42 +1143,35 @@ int audio_route_supports_path(struct audio_route *ar, const char *name)
+     return 0;
+ }
+ 
+-struct audio_route *audio_route_init(unsigned int card, const char *xml_path)
++struct mixer_ctl *audio_route_get_mixer_ctl(struct audio_route *ar, const char *name)
++{
++    if (!ar || !name)
++        return NULL;
++
++    return mixer_get_ctl_by_name(ar->mixer, name);
++}
++
++int get_dai_link(struct audio_route *ar, unsigned int index)
++{
++    if (!ar || index >= DAI_LINK_COUNT)
++        return -1;
++
++    return ar->dai_link[index];
++}
++
++static int parse_xml(struct audio_route *ar, const char *xml_path)
+ {
+     struct config_parse_state state;
+     XML_Parser parser;
+     FILE *file;
+     int bytes_read;
+     void *buf;
+-    struct audio_route *ar;
+-
+-    ar = calloc(1, sizeof(struct audio_route));
+-    if (!ar)
+-        goto err_calloc;
+-
+-    ar->mixer = mixer_open(card);
+-    if (!ar->mixer) {
+-        ALOGE("Unable to open the mixer, aborting.");
+-        goto err_mixer_open;
+-    }
+-
+-    ar->mixer_path = NULL;
+-    ar->mixer_path_size = 0;
+-    ar->num_mixer_paths = 0;
+-
+-    /* allocate space for and read current mixer settings */
+-    if (alloc_mixer_state(ar) < 0)
+-        goto err_mixer_state;
+-
+-    /* use the default XML path if none is provided */
+-    if (xml_path == NULL)
+-        xml_path = MIXER_XML_PATH;
++    int ret = -1;
+ 
+     file = fopen(xml_path, "r");
+-
+     if (!file) {
+         ALOGE("Failed to open %s: %s", xml_path, strerror(errno));
+-        goto err_fopen;
++        return -1;
+     }
+ 
+     parser = XML_ParserCreate(NULL);
+@@ -1052,6 +1182,7 @@ struct audio_route *audio_route_init(unsigned int card, const char *xml_path)
+ 
+     memset(&state, 0, sizeof(state));
+     state.ar = ar;
++    state.xml_path = xml_path;
+     XML_SetUserData(parser, &state);
+     XML_SetElementHandler(parser, start_tag, end_tag);
+ 
+@@ -1066,7 +1197,7 @@ struct audio_route *audio_route_init(unsigned int card, const char *xml_path)
+ 
+         if (XML_ParseBuffer(parser, bytes_read,
+                             bytes_read == 0) == XML_STATUS_ERROR) {
+-            ALOGE("Error in mixer xml (%s)", MIXER_XML_PATH);
++            ALOGE("Error in mixer xml (%s)", xml_path);
+             goto err_parse;
+         }
+ 
+@@ -1074,21 +1205,57 @@ struct audio_route *audio_route_init(unsigned int card, const char *xml_path)
+             break;
+     }
+ 
++    ret = 0;
++
++err_parse:
++    XML_ParserFree(parser);
++err_parser_create:
++    fclose(file);
++    return ret;
++}
++
++struct audio_route *audio_route_init(unsigned int card, const char *xml_path)
++{
++    struct audio_route *ar;
++    unsigned int i;
++
++    ar = calloc(1, sizeof(struct audio_route));
++    if (!ar)
++        goto err_calloc;
++
++    ar->mixer = mixer_open(card);
++    if (!ar->mixer) {
++        ALOGE("Unable to open the mixer, aborting.");
++        goto err_mixer_open;
++    }
++
++    ar->mixer_path = NULL;
++    ar->mixer_path_size = 0;
++    ar->num_mixer_paths = 0;
++
++    for (i = 0; i < DAI_LINK_COUNT; i++)
++        ar->dai_link[i] = -1;
++
++    /* allocate space for and read current mixer settings */
++    if (alloc_mixer_state(ar) < 0)
++        goto err_mixer_state;
++
++    /* use the default XML path if none is provided */
++    if (xml_path == NULL)
++        xml_path = MIXER_XML_PATH;
++
++    if (parse_xml(ar, xml_path) < 0)
++        goto err_parse;
++
+     /* apply the initial mixer values, and save them so we can reset the
+        mixer to the original values */
+     audio_route_update_mixer(ar);
+     save_mixer_state(ar);
+ 
+-    XML_ParserFree(parser);
+-    fclose(file);
+     return ar;
+ 
+ err_parse:
+     path_free(ar);
+-    XML_ParserFree(parser);
+-err_parser_create:
+-    fclose(file);
+-err_fopen:
+     free_mixer_state(ar);
+ err_mixer_state:
+     mixer_close(ar->mixer);
+diff --git a/audio_route/include/audio_route/audio_route.h b/audio_route/include/audio_route/audio_route.h
+index f1d38e37..451dea1b 100644
+--- a/audio_route/include/audio_route/audio_route.h
++++ b/audio_route/include/audio_route/audio_route.h
+@@ -21,6 +21,8 @@
+ extern "C" {
+ #endif
+ 
++struct mixer_ctl;
++
+ /* Initialize and free the audio routes */
+ struct audio_route *audio_route_init(unsigned int card, const char *xml_path);
+ void audio_route_free(struct audio_route *ar);
+@@ -49,6 +51,10 @@ int audio_route_update_mixer(struct audio_route *ar);
+ /* Query whether a audio route is supported */
+ int audio_route_supports_path(struct audio_route *ar, const char *name);
+ 
++/* Legacy vendor HAL compatibility helper. */
++struct mixer_ctl *audio_route_get_mixer_ctl(struct audio_route *ar, const char *name);
++int get_dai_link(struct audio_route *ar, unsigned int index);
++
+ #if defined(__cplusplus)
+ }  /* extern "C" */
+ #endif

@@ -1,44 +1,39 @@
 diff --git a/core/java/android/view/ViewRootImpl.java b/core/java/android/view/ViewRootImpl.java
-index f6211fd488d8..e0879084c651 100644
+index c1b92ee3f74e..7a5db373915e 100644
 --- a/core/java/android/view/ViewRootImpl.java
 +++ b/core/java/android/view/ViewRootImpl.java
-@@ -6789,7 +6789,7 @@ public final class ViewRootImpl implements ViewParent,
+@@ -8268,6 +8268,9 @@ public final class ViewRootImpl implements ViewParent,
+         if (pointerIcon == null) {
+             pointerIcon = mView.onResolvePointerIcon(event, pointerIndex);
          }
- 
-         private void maybeUpdatePointerIcon(MotionEvent event) {
--            if (event.getPointerCount() == 1 && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-+            if (event.getPointerCount() == 1 && isPointerIconSource(event)) {
-                 if (event.getActionMasked() == MotionEvent.ACTION_HOVER_ENTER
-                         || event.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT) {
-                     // Other apps or the window manager may change the icon type outside of
-@@ -6806,6 +6806,12 @@ public final class ViewRootImpl implements ViewParent,
-             }
-         }
- 
-+        private boolean isPointerIconSource(MotionEvent event) {
-+            return event.isFromSource(InputDevice.SOURCE_MOUSE)
-+                    || event.isFromSource(InputDevice.SOURCE_STYLUS)
-+                    || isStylusToolType(event, 0);
++        if (pointerIcon == null && event.isStylusPointer() && mIsStylusPointerIconEnabled) {
++            pointerIcon = PointerIcon.getSystemIcon(mContext, PointerIcon.TYPE_CROSSHAIR);
 +        }
-+
-         private int processTrackballEvent(QueuedInputEvent q) {
-             final MotionEvent event = (MotionEvent)q.mEvent;
- 
-@@ -6877,6 +6883,12 @@ public final class ViewRootImpl implements ViewParent,
-         return true;
-     }
- 
-+    private boolean isStylusToolType(MotionEvent event, int pointerIndex) {
-+        final int toolType = event.getToolType(pointerIndex);
-+        return toolType == MotionEvent.TOOL_TYPE_STYLUS
-+                || toolType == MotionEvent.TOOL_TYPE_ERASER;
-+    }
-+
-     private void maybeUpdateTooltip(MotionEvent event) {
-         if (event.getPointerCount() != 1) {
-             return;
+         if (pointerIcon == null) {
+             pointerIcon = PointerIcon.getSystemIcon(mContext, PointerIcon.TYPE_NOT_SPECIFIED);
+         }
+diff --git a/core/res/res/drawable-hdpi/pointer_crosshair.png b/core/res/res/drawable-hdpi/pointer_crosshair.png
+index be767b286f3593809e58a13cdc3e6d050b5118ad..df694d178a71295cc82f87167be8608c3c0845dd 100644
+GIT binary patch
+literal 448
+zcmeAS@N?(olHy`uVBq!ia0vp^Y9P$P0wkGC6jgx~OS+@4BLl<6e(pbstU$g(vPY0F
+z149*1VM7Z8!!Mvv!wUw6QUeBtR|yOZRx=nF#0%!^3bX-AFeQ1ryD<E3??1C2$YU?@
+z^mS!_#U{#RVAMXdI0Ptk!qdeu#N+te$&Or20V1ybLb?hbEQcrRDi!ea-JQI<khzaV
+zy>Het14o{yhRL@Tn(CG$TCA#9<A3*j?svBL%}0}dR?hjT-q?J2nl0mnqDM^=jKh~z
+zM?NlAP-OEe(z0sfx85_Eb0^o-mn;05*-EXnf;GbX12?Da3%XjhEKI9D=9!;_vQU}Z
+zCS^sb{27y2k5srl5)`gcpM7@9nx#w3C(WDm%{tQg+)a;jPfQ;3uI7yNcReW8&s(r`
+z`GTsOR}(HSj{RaCsWZ*~0o!TADCWg)Yj}ZvQY~?fC`m~yNwrEYN(E93Mg~S^x&~&t
+zMus5<Mph=~RwicJ1_o9J20m&R+)*^-=BH$)RpQoQTb=P6sDZ)L)z4*}Q$iB}1v-?R
+
+literal 202
+zcmeAS@N?(olHy`uVBq!ia0vp^Dj>|k0wldT1B8LpL{AsT5Rc<;ryk@yV!*=^+T<P3
+z`AX%L!gWutKu*2HcY-^P-)xjnwSQ~J$}IMJs)weoRNKPH9w7!7q1NU_B_Cv72y-|c
+zh+DvP*XQH0f6sq3Ce6sbyk)VAI-5MlA;Xyrj?#{7T{;nrZ(IYc#S8yu{#_*;P?LFc
+zUx4n^H%zunpZey_SFG%tXEi}dqs{l#qAhFmT_<e}Qd_nm0_ZpfPgg&ebxsLQ0HRV!
+A6aWAK
+
 diff --git a/core/res/res/drawable-mdpi/pointer_crosshair.png b/core/res/res/drawable-mdpi/pointer_crosshair.png
-index 8a06c773de7eeac597f105f40e410bd0c7df6d02..955023055baac1a0b7f54fd1485e97528625f11d 100644
+index be6bd342a1c787ef326587dcd3207ac33156cfe0..955023055baac1a0b7f54fd1485e97528625f11d 100644
 GIT binary patch
 literal 311
 zcmeAS@N?(olHy`uVBq!ia0vp^k|4~%0wnVu_`U#AEa{HEjtmSN`?>!lvI6-E$sR$z
@@ -48,12 +43,14 @@ zX{j?l^+as>;~v<su!*zV^mO5dm9NB&oN`2XfUY=n%lzF_<^94yqf|>=BT7;dOH!?p
 zi&B9UgOP!enXZAUu90Pkp_!GTp_Qq*wt<0_fx&ghsd*?Ga`RI%(<*UmSSF);38;a=
 M)78&qol`;+0O#Ibng9R*
 
-delta 71
-zcmdnalsZAhQODE8F{FYq`G>!ejAoP+N5;V^5}i>}2^$z!uu49<&}7}?&OB2>_lnn_
-a#Ze4_q1AfFXX?c<0D-5gpUXO@geCxRY8Z$B
+literal 167
+zcmeAS@N?(olHy`uVBq!ia0vp^5+KaM0wlfaz7_+iJWm(L5R21KCvW6!FyLX4R9sxa
+z(*MBsL|P(q|0F@1Ll+mSxVmVu{0ZMya_O{w{%z|PfsiM54<wtD83RQAJZ5k@sNcRw
+z;Owz><zU|2IUaZCC{`(a5;0hjtTNwC>+-$&pgRmA$?;4rUOF}xHd`^;z1Vm3sbA=K
+Ppv?@Pu6{1-oD!M<8{j)P
 
 diff --git a/core/res/res/drawable-mdpi/pointer_crosshair_large.png b/core/res/res/drawable-mdpi/pointer_crosshair_large.png
-index ea1f5fc07ff7f9239882c99576eac217e8e32b84..a6c246fb7087c5d09b9aa499d17397095d498a8b 100644
+index 657df8d24ccfa51e32f237269dedcf2d06f5b6d2..a6c246fb7087c5d09b9aa499d17397095d498a8b 100644
 GIT binary patch
 literal 327
 zcmeAS@N?(olHy`uVBq!ia0vp^4j|0I0wfs{c7_5;mUKs7M+SzC{oH>NS%G|oWRD<U
@@ -63,13 +60,16 @@ zn}Di5#7eGInR;>Szbk=?rJ4bsEnk;3-bq?kyzS+y--rK9`zD?7p9!e!M=$gCnda}L
 zKTLcC<f)dpMwFx^mZVxG7o`Fz1|tI_GhG8yT_ej7Lo+KwODiK2Z36=<1B3s&kIA8E
 c$jwj5OsmALq3>DUBA^BaPgg&ebxsLQ0N_GqVE_OC
 
-delta 136
-zcmX@kw1jbjN`1Dci(^Pd+}oRmTn7|*90Jczw60Fe7Tn(CB|822eCG3t!9hD^7#I$0
-z&)Ouk_0P0t_v0Ld-?K8nfs5|>YmC~wj4S8xEI1;tA?W|rQ$40OjBxpm?1pRd4U>6+
-aMlc^X{v)LHTzmmY($m$?Wt~$3V-o;qMJ}iS
+literal 300
+zcmV+{0n`48P)<h;3K|Lk000e1NJLTq002Ay002A)1ONa4ko6Jy0002<Nkl<ZSi|j@
+z%?-mK3`RWyBY1?2zz7*3BV>eZLN{OpMteOp>A!$V)IHSCSELsVflr7yj`M4XtZYPE
+zX`pbB2zKJcJ=sdD0GWUu6IUDY3@{<=-vEn^cmYrsyV%7pcJY6TQI<-j7jdeLo;xp1
+z0+|jT#4UPK%2T=+BZkt_Mu37gOZIAwn~ny?x_G<IW>kfXc&&?9fG||NFUQu=>dZ8(
+z)z?56TdQ2Yvbj>v?{pe2&YhtjWv(0vr;iShWmxL=OTxu2cCm|H+$Eka;@L*5M<Bc=
+yVHF#ml6Mj-9#Tp%d{Pt<A+oU=KcYI0^Nur8L6zX`!VXyg0000<MNUMnLSTa7zj{&t
 
 diff --git a/core/res/res/drawable-xhdpi/pointer_crosshair.png b/core/res/res/drawable-xhdpi/pointer_crosshair.png
-index 86c649c1a1bc03e808d317b55068a5b5fdec22b0..492663d7f46e921dba3909c9a202ab00857a1309 100644
+index d384c94fd6a8cb13bf1bc990ef583e06aecf6a7d..492663d7f46e921dba3909c9a202ab00857a1309 100644
 GIT binary patch
 literal 409
 zcmeAS@N?(olHy`uVBq!ia0vp^Mj*_=0wlMXIamQHmUKs7M+SzC{oH>NS%G|oWRD<U
@@ -81,13 +81,15 @@ z-#Jc(2M2DSmM=PSKeEcv>_q}cgjVbXpiT7;7*D=E!7%0E+G?O<RZCnWN>UO_QmvAU
 zQh^kMk%5t!u7Rnpk!6UXnU$fTm8rS5fq|8Q!F9)}c_<ok^HVa@DsgLACZl@^sDZ)L
 L)z4*}Q$iB}*qMk5
 
-delta 115
-zcmbQqJb`h7N=~?^i(^Pd+}mp#c^MQq7#yD^q^G;_tQDEjaQ3(A(LjmCHyjjzV3KTb
-ze&ya1lG6nR1Oz5jEY4${6zX#1)meoomrY5Jb54oYIXgHwY?18TSGU6v$TC~(yywEp
-Ssb=L2K;Y@>=d#Wzp$PyEpDfV;
+literal 233
+zcmeAS@N?(olHy`uVBq!ia0vp^1|ZDA0wn)(8}b0D4W2HJArXh)PCv+dSb>MZmPxr{
+zO3wj~o=3hf)Orqa^c2*FOzjW}xH{ok;Qam5_!*5Njuh5$crCnm;)Q9`so7o;@pewG
+z7pJSQ6_=1`N?>@#B);Q8KP!t+nMA6(M)MjA{q?cOZ59aktel+Y*Jc$lD=~-TklD!<
+z45>O93r=(fG?Xn~pmTFk&3(o04gvqz%U`}`zg>HXRj=TndefHQ`;LEYy1=hc#HztB
+h)mwCt<EaJnyxYwmd$v!~Z2`KS!PC{xWt~$(6959|T8{t#
 
 diff --git a/core/res/res/drawable-xhdpi/pointer_crosshair_large.png b/core/res/res/drawable-xhdpi/pointer_crosshair_large.png
-index d5f4502c9d8971d0cc5d87396f8225e36404d34f..f61793686f9daa5c8bf19f2b9af74ef02c248035 100644
+index 165daf3fa1c584436a1b484731f5271cdf6576b5..f61793686f9daa5c8bf19f2b9af74ef02c248035 100644
 GIT binary patch
 literal 446
 zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H0wgodS2_SGmUKs7M+SzC{oH>NS%G|oWRD<U
@@ -99,396 +101,85 @@ z7l0~q)bBU=mT%g{wT^F1{q4D{wl#fT{FnFFnuN)wyZ59`H}x);LRbxAHQ2vrKA*7e
 zZMPzy8IY@5;u=wsl30>zm0Xkxq!^40jLdWmOm&ScLk!KV3@xpUOtcLQtPBkP?>;7n
 dq9HdwB{QuOw}!rFb&EhYdb;|#taD0e0syu-nkE1M
 
-literal 507
-zcmeAS@N?(olHy`uVBq!ia0vp^4Is?H1|$#LC7uRSk|nMYCBgY=CFO}lsSJ)O`AMk?
-zp1FzXsX?iUDV2pMQ*9U+80UJrIEGZ*dUN+6Z<B#ULtyrfT?~0IS#%aepJL(*sDALk
-zvBf3n@9Aps<fJLr&PVB+KApq==K4hu4hBXA29^c}0R|=q1_;Mt_b%P}I!i_Jn2OFF
-zJ`>T#bzR81!6Couf6@0Z&lLH!9Uh-j|6?b7{Hz=UBf4G`g9vjP=HLFa<igI)<^RvD
-zoLIO=DvRxc|Kx31MbR8j&fBb7&rqEH-Yxi8VQ0zS`}1;h_!ERX7;dcHa&dpim$h#g
-z7iqq~zw=H{7{jZ7Tr<3Sw%m^Yb$r5VhHKKxJ$pCheDmJF`gFuGuIs5lO-Q~Y>?jmp
-zIWR19V0aU8>r=rY4|dl&3(YSvk0+dXxpghWpRn!M8{MsMTO0{zFl)pTj$oS>>|4&j
-Z%)q7*sCjs`#T^D9@O1TaS?83{1OU+_q67c{
+literal 514
+zcmeAS@N?(olHy`uVBq!ia0vp^6(G#P3?%t>9eV(zyaRkfT!Hj|+~EHG`wk8c0s;aF
+z2?;<|3JMB9_3z)mFDNKzXlMus2!Lp<udfF(j2LEk0;MHOg8YIR9OmEue_mn#dI6A%
+z0ub^4|N901Hyn2Ut;N8==<Dg?7*fIb_Eu}*0RsV-!00IB&A->1>@qlQ9O&2hm)FKP
+z?$AD&<Q~ImQrszOp=qC)zE9n`D*NM%vx|2qg=cLz*xfU2w)3jl+umk*OclCwf7js`
+zQffP@RCkEv$mK_yY%f)eC}v+@AS(Dk&B$klLE@nnPGL1LBQ(Fu|5n`L=#QSM^W#%_
+zZT7bOo#|bYCn(i+wt1)iLxG~s2OpL`)^9b@&3?RcZ}aVA*JGT$Y&Y!uzfW+(!!R>B
+zi{{nR&DRd3+8Qh|)4AjHYvqQ$)=ACR4o<CnU<)LjRy|j{@^XvZ<o_j;y58?>nDSA7
+z<}Y*3{d?Nme5b}}zdv2T&$Mj)zt_g%NN#H3Trc<_cEeM?c@M2j+k2KheEHjLJxln6
+zSL<?TO9jo-*m_(-WwI9c5&2uf;emRE@rvuxUe04QJK&%J454Fr43GMfStmridI1c5
+N22WQ%mvv4FO#rm>`ey(D
 
-diff --git a/core/res/res/drawable/pointer_arrow_icon.xml b/core/res/res/drawable/pointer_arrow_icon.xml
-index 72af0c11f50c..3b96a8ad3ace 100644
---- a/core/res/res/drawable/pointer_arrow_icon.xml
-+++ b/core/res/res/drawable/pointer_arrow_icon.xml
+diff --git a/core/res/res/drawable-xxhdpi/pointer_crosshair.png b/core/res/res/drawable-xxhdpi/pointer_crosshair.png
+index 6cb8b835506e3154922587a69b26999ce718ea7a..2730c4d69718ac1bc924fb16a7f6c77d3cad2b47 100644
+GIT binary patch
+literal 863
+zcmeAS@N?(olHy`uVBq!ia0vp^-XP4u0wgE7Z%PDGEa{HEjtmSN`?>!lvI6-E$sR$z
+z3=CCj3=9n|3=F@3LJcn%7)lKo7+xhXFj&oCU=S~uvn$XBD8ZEE?e4<xzrFv=ejty%
+z#M9T6{S})ilYvqD%;FHBe7dKLV@Srmx7QEmOSwz5eY~$1z{56k3Fp#9x}V~7o=!<#
+z`tN`Fe5I$GrY%j<m?kB_ZDzXrwzI}r#Vtv97lh1uzNKCA?B@5|tv~ZNIw%NmurPtC
+zny)UQYE$da_gp!Wl{C>~WylH9PyNkPu1;HF|9PpDRospXrR(ytQ!^hnpSkR}M(F&-
+zt}9!4RovQsMaiA%x$AW|@@AO0bx?NrJ|WX|t2pmHg{p>ECQ5pj9!>gg)W2=Y#g9wZ
+z%nEyR=D<>yN0<2beP6q5T10I0d52fWu0$0!ZTS{tDm%UI<FyN|#j?Jod%pCB>&5PL
+zOZyytBtB02(uHqPkJirLD|GUzixO|CF7r}(L&L2b*M0gJesR^yUw%nT)~{}>(3g2T
+zZ}%^^WnB9sW#Uh0MQxmSM7nd{Eyu6(jsztpSN;*YdTEzIQR<TI=U*1TQtqGj?#^5{
+z?Q5n}B;I-bsQkKap}O$h=2!nWhCPY79}xfeL77NqcEzRgxTjxME(^VW>EfT`h7*_d
+zO{)@J%f+ajYkML`guVW6P@?kZfVUj0CWU3DrmcC{`mIsND_g$j>>9tNp%GHvrdLe)
+zpUi!KtVegXjD6^qBJS<G&c#$z2GqX0R=r*9Q}9yL>0PCNOA1cjiFq~m%Ab-<-KR;+
+z#@=WB&m9TU3=fW)_4e1guPZNU*`B=P9lQCx!nrHCwx`zU^u&7KJ^k(NXYuQc9G<aF
+z_Wz}8R%iZkwe-p>y*}$Ku9p1@d~-1*Eh{T8clC|(<?r|2R{a{WmeVFmyJ=I)om=u|
+zT&+t_K8&+l6>#Kv?1_JWp9Oz(`Zo2RFf&qe_#yv6z3BSuRcn7)RsvI@YKdz^NlIc#
+zs#S7PDv)9@GB7gJH89gPG7K>=vNAEZGBMLOFt9Q(@KL+qj-nwqKP5A*61N81>Wtq&
+O4Gf;HelF{r5}E*nyng}!
+
+literal 346
+zcmeAS@N?(olHy`uVBq!ia0vp^9w5xY0wn)GsXoKNz^Lfy;uw-~@9oXo6Ppzn+!DPu
+zuy_N}!se~aZyl^XtQLxRZD`rd-!Oac84kY)qnZCdym=zc%(&RlOLOTwSuys8!~2+?
+zA4|^8K6mE)vTX|d8!lel%yQx0Bx9xuADL<e-d@Ld46QrQYD{oo;#2_<U*r_nj!icF
+z%Q?$$y|()2iGB6Y|1v#&GSk~an>Ch+@lKJY*}Q9ok;%3W(a%KfCg#YUVAMH&{E9^M
+zo}HBn48K+_(7U&YDIi?*ig=^U2Lt1*o}DkWH)p0!^Lu6bxodAuko4id@zef>ee&K?
+zv-Ygkg1?963q6-U@N{kRg*<(@BSP3sS`NoE{k*0i9M5p}OUcWhw`Wglb$+v5?DDoR
+oAu_vXf7^S*J7MXRs_k}+a%Oc?_dIi+1Pn6<Pgg&ebxsLQ0D7*IPyhe`
+
+diff --git a/core/res/res/drawable/pointer_crosshair_vector_icon.xml b/core/res/res/drawable/pointer_crosshair_vector_icon.xml
+index d938514d2877..3b96a8ad3ace 100644
+--- a/core/res/res/drawable/pointer_crosshair_vector_icon.xml
++++ b/core/res/res/drawable/pointer_crosshair_vector_icon.xml
 @@ -1,5 +1,5 @@
  <?xml version="1.0" encoding="utf-8"?>
  <pointer-icon xmlns:android="http://schemas.android.com/apk/res/android"
--    android:bitmap="@drawable/pointer_arrow"
--    android:hotSpotX="5dp"
--    android:hotSpotY="5dp" />
+-    android:bitmap="@drawable/pointer_crosshair_vector"
 +    android:bitmap="@drawable/pointer_crosshair"
-+    android:hotSpotX="12dp"
-+    android:hotSpotY="12dp" />
-diff --git a/core/res/res/drawable/pointer_arrow_large_icon.xml b/core/res/res/drawable/pointer_arrow_large_icon.xml
-index 22c7bfebf951..6a71b7b638f3 100644
---- a/core/res/res/drawable/pointer_arrow_large_icon.xml
-+++ b/core/res/res/drawable/pointer_arrow_large_icon.xml
-@@ -1,5 +1,5 @@
- <?xml version="1.0" encoding="utf-8"?>
- <pointer-icon xmlns:android="http://schemas.android.com/apk/res/android"
--    android:bitmap="@drawable/pointer_arrow_large"
--    android:hotSpotX="10dp"
--    android:hotSpotY="10dp" />
-+    android:bitmap="@drawable/pointer_crosshair_large"
-+    android:hotSpotX="31dp"
-+    android:hotSpotY="30dp" />
-diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
-index 687e9be078ed..a576327f4e8e 100644
---- a/core/res/res/values/config.xml
-+++ b/core/res/res/values/config.xml
-@@ -2732,6 +2732,9 @@
-          screenshot chord -->
-     <integer name="config_screenshotChordKeyTimeout">0</integer>
- 
-+    <!-- Whether the system should take a screenshot for vendor palm swipe gestures. -->
-+    <bool name="config_enablePalmSwipeScreenshot">false</bool>
-+
-     <!-- Default width of a vertical scrollbar and height of a horizontal scrollbar.
-          Takes effect only if the scrollbar drawables have no intrinsic size. -->
-     <dimen name="config_scrollbarSize">4dp</dimen>
-diff --git a/core/res/res/values/symbols.xml b/core/res/res/values/symbols.xml
-index f8d500cd86d0..9c17c7608f36 100644
---- a/core/res/res/values/symbols.xml
-+++ b/core/res/res/values/symbols.xml
-@@ -2295,6 +2295,7 @@
-   <java-symbol type="id" name="button_always" />
-   <java-symbol type="integer" name="config_globalActionsKeyTimeout" />
-   <java-symbol type="integer" name="config_screenshotChordKeyTimeout" />
-+  <java-symbol type="bool" name="config_enablePalmSwipeScreenshot" />
-   <java-symbol type="integer" name="config_maxResolverActivityColumns" />
-   <java-symbol type="array" name="config_notificationSignalExtractors" />
-   <java-symbol type="bool" name="config_notificationReviewPermissions" />
-diff --git a/packages/PackageInstaller/src/com/android/packageinstaller/PackageInstallerActivity.java b/packages/PackageInstaller/src/com/android/packageinstaller/PackageInstallerActivity.java
-index 9c6113ce4b47..38fd2fe65131 100644
---- a/packages/PackageInstaller/src/com/android/packageinstaller/PackageInstallerActivity.java
-+++ b/packages/PackageInstaller/src/com/android/packageinstaller/PackageInstallerActivity.java
-@@ -523,6 +523,7 @@ public class PackageInstallerActivity extends AlertActivity {
-                 mAppOpsManager.setMode(appOpCode, mOriginatingUid,
-                         mOriginatingPackage, AppOpsManager.MODE_ERRORED);
-                 // fall through
-+            case AppOpsManager.MODE_IGNORED:
-             case AppOpsManager.MODE_ERRORED:
-                 showDialogInner(DLG_EXTERNAL_SOURCE_BLOCKED);
-                 break;
-diff --git a/packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java b/packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java
-index efcceb5ca711..8fa0bae61bd6 100644
---- a/packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java
-+++ b/packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java
-@@ -22,7 +22,6 @@ import static android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
- import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
- import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_GLOBAL_ACTIONS;
- import static android.view.WindowManager.TAKE_SCREENSHOT_FULLSCREEN;
--import static android.view.WindowManager.TAKE_SCREENSHOT_SELECTED_REGION;
- 
- import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.SOME_AUTH_REQUIRED_AFTER_USER_REQUEST;
- import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_NOT_REQUIRED;
-@@ -1156,7 +1155,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
-     }
- 
-     @VisibleForTesting
--    class ScreenshotAction extends SinglePressAction implements LongPressAction {
-+    class ScreenshotAction extends SinglePressAction {
-         ScreenshotAction() {
-             super(R.drawable.ic_screenshot, R.string.global_action_screenshot);
+     android:hotSpotX="12dp"
+     android:hotSpotY="12dp" />
+diff --git a/media/jni/android_mtp_MtpServer.cpp b/media/jni/android_mtp_MtpServer.cpp
+index b4844f79b540..78e1f08eb54f 100644
+--- a/media/jni/android_mtp_MtpServer.cpp
++++ b/media/jni/android_mtp_MtpServer.cpp
+@@ -88,7 +88,7 @@ android_mtp_MtpServer_setup(JNIEnv *env, jobject thiz, jobject javaDatabase, job
+     const char *deviceInfoModelStr = env->GetStringUTFChars(deviceInfoModel, NULL);
+     const char *deviceInfoDeviceVersionStr = env->GetStringUTFChars(deviceInfoDeviceVersion, NULL);
+     const char *deviceInfoSerialNumberStr = env->GetStringUTFChars(deviceInfoSerialNumber, NULL);
+-    int controlFd = dup(jniGetFDFromFileDescriptor(env, jControlFd));
++    int controlFd = jControlFd != NULL ? dup(jniGetFDFromFileDescriptor(env, jControlFd)) : -1;
+     MtpServer* server = new MtpServer(getMtpDatabase(env, javaDatabase), controlFd,
+             usePtp,
+             (deviceInfoManufacturerStr != NULL) ? deviceInfoManufacturerStr : "",
+diff --git a/services/usb/java/com/android/server/usb/UsbDeviceManager.java b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
+index 1f3ce01cad4a..8df1a6ecf4ba 100644
+--- a/services/usb/java/com/android/server/usb/UsbDeviceManager.java
++++ b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
+@@ -2721,6 +2721,10 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
+         if (DEBUG) {
+             Slog.d(TAG, "setCurrentFunctions(" + UsbManager.usbFunctionsToString(functions) + ")");
          }
-@@ -1182,13 +1181,6 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
-             takeScreenshot(TAKE_SCREENSHOT_FULLSCREEN);
-         }
- 
--        @Override
--        public boolean onLongPress() {
--            takeScreenshot(TAKE_SCREENSHOT_SELECTED_REGION);
--
--            return true;
--        }
--
-         @Override
-         public boolean showDuringKeyguard() {
-             return true;
-diff --git a/services/core/java/com/android/server/input/InputManagerService.java b/services/core/java/com/android/server/input/InputManagerService.java
-index b7adf3850b55..58dcba2bffd1 100644
---- a/services/core/java/com/android/server/input/InputManagerService.java
-+++ b/services/core/java/com/android/server/input/InputManagerService.java
-@@ -2377,7 +2377,7 @@ public class InputManagerService extends IInputManager.Stub
-         }
-         synchronized (mAdditionalDisplayInputPropertiesLock) {
-             mIcon = null;
--            mIconType = iconType;
-+            mIconType = PointerIcon.TYPE_CROSSHAIR;
- 
-             if (!mCurrentDisplayProperties.pointerIconVisible) return;
- 
-@@ -2390,12 +2390,12 @@ public class InputManagerService extends IInputManager.Stub
-     public void setCustomPointerIcon(PointerIcon icon) {
-         Objects.requireNonNull(icon);
-         synchronized (mAdditionalDisplayInputPropertiesLock) {
--            mIconType = PointerIcon.TYPE_CUSTOM;
--            mIcon = icon;
-+            mIconType = PointerIcon.TYPE_CROSSHAIR;
-+            mIcon = null;
- 
-             if (!mCurrentDisplayProperties.pointerIconVisible) return;
- 
--            mNative.setCustomPointerIcon(mIcon);
-+            mNative.setPointerIconType(mIconType);
-         }
-     }
- 
-@@ -3232,7 +3232,8 @@ public class InputManagerService extends IInputManager.Stub
-     // Native callback.
-     @SuppressWarnings("unused")
-     private PointerIcon getPointerIcon(int displayId) {
--        return PointerIcon.getDefaultIcon(getContextForPointerIcon(displayId));
-+        return PointerIcon.getSystemIcon(getContextForPointerIcon(displayId),
-+                PointerIcon.TYPE_CROSSHAIR);
-     }
- 
-     // Native callback.
-diff --git a/services/core/java/com/android/server/pm/ModuleInfoProvider.java b/services/core/java/com/android/server/pm/ModuleInfoProvider.java
-index 230f5558b37d..a54049b614ed 100644
---- a/services/core/java/com/android/server/pm/ModuleInfoProvider.java
-+++ b/services/core/java/com/android/server/pm/ModuleInfoProvider.java
-@@ -183,7 +183,8 @@ public class ModuleInfoProvider {
-      */
-     List<ModuleInfo> getInstalledModules(@PackageManager.InstalledModulesFlags int flags) {
-         if (!mMetadataLoaded) {
--            throw new IllegalStateException("Call to getInstalledModules before metadata loaded");
-+            Slog.w(TAG, "Module metadata not loaded yet; returning no installed modules");
-+            return Collections.emptyList();
-         }
- 
-         if ((flags & PackageManager.MATCH_ALL) != 0) {
-@@ -211,7 +212,8 @@ public class ModuleInfoProvider {
- 
-     ModuleInfo getModuleInfo(String name, @PackageManager.ModuleInfoFlags int flags) {
-         if (!mMetadataLoaded) {
--            throw new IllegalStateException("Call to getModuleInfo before metadata loaded");
-+            Slog.w(TAG, "Module metadata not loaded yet; no module info for " + name);
-+            return null;
-         }
-         if ((flags & PackageManager.MODULE_APEX_NAME) != 0) {
-             for (ModuleInfo moduleInfo : mModuleInfo.values()) {
-@@ -226,7 +228,8 @@ public class ModuleInfoProvider {
- 
-     String getPackageName() {
-         if (!mMetadataLoaded) {
--            throw new IllegalStateException("Call to getVersion before metadata loaded");
-+            Slog.w(TAG, "Module metadata not loaded yet; no package name");
-+            return null;
-         }
-         return mPackageName;
-     }
-diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
-index 0af746eea37f..c1d9b76e9479 100644
---- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
-+++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
-@@ -64,7 +64,6 @@ import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_KEY_CHORD;
- import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_KEY_OTHER;
- import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_OTHER;
- import static android.view.WindowManager.TAKE_SCREENSHOT_FULLSCREEN;
--import static android.view.WindowManager.TAKE_SCREENSHOT_SELECTED_REGION;
- import static android.view.WindowManagerGlobal.ADD_OKAY;
- import static android.view.WindowManagerGlobal.ADD_PERMISSION_DENIED;
- 
-@@ -1788,12 +1787,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
-     }
- 
-     private void cancelPendingScreenshotChordAction() {
--        boolean hadMessage = mHandler.hasMessages(MSG_SCREENSHOT_CHORD);
-         mHandler.removeMessages(MSG_SCREENSHOT_CHORD);
--        if (mClickPartialScreenshot && hadMessage) {
--            mHandler.sendMessage(mHandler.obtainMessage(
--                    MSG_SCREENSHOT_CHORD, SCREENSHOT_OTHER, TAKE_SCREENSHOT_SELECTED_REGION));
--        }
-     }
- 
-     private void cancelPendingAccessibilityShortcutAction() {
-@@ -2904,9 +2898,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
-             mTorchTimeout = LineageSettings.System.getIntForUser(
-                     resolver, LineageSettings.System.TORCH_LONG_PRESS_POWER_TIMEOUT, 0,
-                     UserHandle.USER_CURRENT);
--            mClickPartialScreenshot = LineageSettings.System.getIntForUser(resolver,
--                    LineageSettings.System.CLICK_PARTIAL_SCREENSHOT, 0,
--                    UserHandle.USER_CURRENT) == 1;
-+            mClickPartialScreenshot = false;
-             mWakeOnHomeKeyPress = (LineageSettings.System.getIntForUser(resolver,
-                     LineageSettings.System.HOME_WAKE_SCREEN, 1, UserHandle.USER_CURRENT) == 1)
-                     && ((mDeviceHardwareWakeKeys & KEY_MASK_HOME) != 0);
-@@ -3400,9 +3392,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
-                 break;
-             case KeyEvent.KEYCODE_S:
-                 if (down && event.isMetaPressed() && event.isCtrlPressed() && repeatCount == 0) {
--                    int type = event.isShiftPressed() ? TAKE_SCREENSHOT_SELECTED_REGION
--                            : TAKE_SCREENSHOT_FULLSCREEN;
--                    interceptScreenshotChord(type, SCREENSHOT_KEY_OTHER, 0 /*pressDelay*/);
-+                    interceptScreenshotChord(TAKE_SCREENSHOT_FULLSCREEN, SCREENSHOT_KEY_OTHER,
-+                            0 /*pressDelay*/);
-                     return key_consumed;
-                 }
-                 break;
-diff --git a/services/core/java/com/android/server/wm/DisplayPolicy.java b/services/core/java/com/android/server/wm/DisplayPolicy.java
-index 762669fab41a..c8211bd9f5e8 100644
---- a/services/core/java/com/android/server/wm/DisplayPolicy.java
-+++ b/services/core/java/com/android/server/wm/DisplayPolicy.java
-@@ -62,6 +62,8 @@ import static android.view.WindowManager.LayoutParams.TYPE_TOAST;
- import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION;
- import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION_STARTING;
- import static android.view.WindowManager.LayoutParams.TYPE_WALLPAPER;
-+import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_VENDOR_GESTURE;
-+import static android.view.WindowManager.TAKE_SCREENSHOT_FULLSCREEN;
- import static android.view.WindowManagerGlobal.ADD_OKAY;
- import static android.view.WindowManagerPolicyConstants.ACTION_HDMI_PLUGGED;
- import static android.view.WindowManagerPolicyConstants.ALT_BAR_BOTTOM;
-@@ -600,6 +602,11 @@ public class DisplayPolicy {
-                     public void onMouseLeaveFromEdge() {
-                         mHandler.removeMessages(MSG_REQUEST_TRANSIENT_BARS);
-                     }
-+
-+                    @Override
-+                    public void onPalmSwipeScreenshot() {
-+                        takeScreenshot(TAKE_SCREENSHOT_FULLSCREEN, SCREENSHOT_VENDOR_GESTURE);
-+                    }
-                 });
-         displayContent.registerPointerEventListener(mSystemGestures);
-         mAppTransitionListener = new WindowManagerInternal.AppTransitionListener() {
-diff --git a/services/core/java/com/android/server/wm/SystemGesturesPointerEventListener.java b/services/core/java/com/android/server/wm/SystemGesturesPointerEventListener.java
-index 658f4efbdb2f..b4f31e433c53 100644
---- a/services/core/java/com/android/server/wm/SystemGesturesPointerEventListener.java
-+++ b/services/core/java/com/android/server/wm/SystemGesturesPointerEventListener.java
-@@ -58,9 +58,15 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-     private static final int SWIPE_FROM_BOTTOM = 2;
-     private static final int SWIPE_FROM_RIGHT = 3;
-     private static final int SWIPE_FROM_LEFT = 4;
-+    private static final long PALM_SWIPE_TIMEOUT_MS = 1200;
-+    private static final int PALM_SWIPE_MIN_PALM_POINTERS = 1;
-+    private static final int PALM_SWIPE_MIN_FALLBACK_POINTERS = 4;
-+    private static final float PALM_SWIPE_MIN_DISTANCE_RATIO = 0.45f;
-+    private static final float PALM_SWIPE_MAX_VERTICAL_DRIFT_RATIO = 0.18f;
- 
-     private final Context mContext;
-     private final Handler mHandler;
-+    private final boolean mEnablePalmSwipeScreenshot;
-     private int mDisplayCutoutTouchableRegionSize;
-     // The thresholds for each edge of the display
-     private final Rect mSwipeStartThreshold = new Rect();
-@@ -77,6 +83,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-     int screenWidth;
-     private int mDownPointers;
-     private boolean mSwipeFireable;
-+    private boolean mPalmSwipeFireable;
-     private boolean mDebugFireable;
-     private boolean mMouseHoveringAtEdge;
-     private long mLastFlingTime;
-@@ -85,6 +92,8 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-         mContext = checkNull("context", context);
-         mHandler = handler;
-         mCallbacks = checkNull("callbacks", callbacks);
-+        mEnablePalmSwipeScreenshot = mContext.getResources().getBoolean(
-+                com.android.internal.R.bool.config_enablePalmSwipeScreenshot);
-         onConfigurationChanged();
-     }
- 
-@@ -171,6 +180,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-         switch (event.getActionMasked()) {
-             case MotionEvent.ACTION_DOWN:
-                 mSwipeFireable = true;
-+                mPalmSwipeFireable = mEnablePalmSwipeScreenshot;
-                 mDebugFireable = true;
-                 mDownPointers = 0;
-                 captureDown(event, 0);
-@@ -208,6 +218,11 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-                         mCallbacks.onSwipeFromLeft();
-                     }
-                 }
-+                if (mPalmSwipeFireable && detectPalmSwipeScreenshot(event)) {
-+                    if (DEBUG) Slog.d(TAG, "Firing onPalmSwipeScreenshot");
-+                    mPalmSwipeFireable = false;
-+                    mCallbacks.onPalmSwipeScreenshot();
-+                }
-                 break;
-             case MotionEvent.ACTION_HOVER_MOVE:
-                 if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-@@ -227,6 +242,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-             case MotionEvent.ACTION_UP:
-             case MotionEvent.ACTION_CANCEL:
-                 mSwipeFireable = false;
-+                mPalmSwipeFireable = false;
-                 mDebugFireable = false;
-                 mCallbacks.onUpOrCancel();
-                 break;
-@@ -320,6 +336,55 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-         return SWIPE_NONE;
-     }
- 
-+    private boolean detectPalmSwipeScreenshot(MotionEvent move) {
-+        if (!move.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
-+            return false;
++        if ((functions & UsbManager.FUNCTION_UVC) != 0 && !UsbManager.isUvcSupportEnabled()) {
++            Slog.w(TAG, "Ignoring unsupported USB UVC function");
++            return;
 +        }
-+
-+        int movingPalmPointers = 0;
-+        int movingFingerPointers = 0;
-+        final float minDistance = screenWidth * PALM_SWIPE_MIN_DISTANCE_RATIO;
-+        final float maxVerticalDrift = Math.max(mSwipeDistanceThreshold,
-+                screenHeight * PALM_SWIPE_MAX_VERTICAL_DRIFT_RATIO);
-+
-+        for (int p = 0; p < move.getPointerCount(); p++) {
-+            final int toolType = move.getToolType(p);
-+            final boolean isPalm = toolType == MotionEvent.TOOL_TYPE_PALM;
-+            final boolean isFinger = toolType == MotionEvent.TOOL_TYPE_FINGER;
-+            if (!isPalm && !isFinger) {
-+                return false;
-+            }
-+
-+            final int pointerId = move.getPointerId(p);
-+            final int i = findIndex(pointerId);
-+            if (i == UNTRACKED_POINTER) {
-+                continue;
-+            }
-+
-+            final long elapsed = move.getEventTime() - mDownTime[i];
-+            final float deltaX = move.getX(p) - mDownX[i];
-+            final float deltaY = Math.abs(move.getY(p) - mDownY[i]);
-+            if (elapsed <= PALM_SWIPE_TIMEOUT_MS
-+                    && Math.abs(deltaX) >= minDistance
-+                    && deltaY <= maxVerticalDrift) {
-+                if (isPalm) {
-+                    movingPalmPointers++;
-+                } else {
-+                    movingFingerPointers++;
-+                }
-+            }
-+        }
-+
-+        if (movingPalmPointers >= PALM_SWIPE_MIN_PALM_POINTERS) {
-+            return true;
-+        }
-+
-+        // Fall back to a broad multi-finger swipe only when the input stack does not classify
-+        // the contact as a palm. This avoids treating ordinary three-finger horizontal gestures
-+        // as Samsung's palm-swipe screenshot.
-+        return movingFingerPointers >= PALM_SWIPE_MIN_FALLBACK_POINTERS;
-+    }
-+
-     public void dump(@NonNull PrintWriter pw, @NonNull String prefix) {
-         final String inner = prefix  + "  ";
-         pw.println(prefix + TAG + ":");
-@@ -327,6 +392,8 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-         pw.println(mDisplayCutoutTouchableRegionSize);
-         pw.print(inner); pw.print("mSwipeStartThreshold="); pw.println(mSwipeStartThreshold);
-         pw.print(inner); pw.print("mSwipeDistanceThreshold="); pw.println(mSwipeDistanceThreshold);
-+        pw.print(inner); pw.print("mEnablePalmSwipeScreenshot=");
-+        pw.println(mEnablePalmSwipeScreenshot);
-     }
- 
-     private final class FlingGestureDetector extends GestureDetector.SimpleOnGestureListener {
-@@ -376,6 +443,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
-         void onMouseHoverAtTop();
-         void onMouseHoverAtBottom();
-         void onMouseLeaveFromEdge();
-+        void onPalmSwipeScreenshot();
-         void onDebug();
-     }
- }
+         if (functions == UsbManager.FUNCTION_NONE) {
+             MetricsLogger.action(mContext, MetricsEvent.ACTION_USB_CONFIG_CHARGING);
+         } else if (functions == UsbManager.FUNCTION_MTP) {

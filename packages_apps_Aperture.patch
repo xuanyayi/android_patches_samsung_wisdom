@@ -1,0 +1,50 @@
+diff --git a/app/src/main/java/org/lineageos/aperture/CameraActivity.kt b/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
+index 1f5b090..0c7e05e 100644
+--- a/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
++++ b/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
+@@ -109,6 +109,7 @@ import org.lineageos.aperture.ext.flashMode
+ import org.lineageos.aperture.ext.forceTorchHelpShown
+ import org.lineageos.aperture.ext.getHardwareKeyAction
+ import org.lineageos.aperture.ext.getHardwareKeyInvert
++import org.lineageos.aperture.ext.getLastMicMode
+ import org.lineageos.aperture.ext.hotPixelMode
+ import org.lineageos.aperture.ext.lastCameraFacing
+ import org.lineageos.aperture.ext.lastCameraMode
+@@ -648,7 +649,9 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
+         videoQuality = sharedPreferences.videoQuality
+         videoFrameRate = sharedPreferences.videoFrameRate
+         videoDynamicRange = sharedPreferences.videoDynamicRange
+-        videoMicMode = sharedPreferences.lastMicMode
++        videoMicMode = sharedPreferences.getLastMicMode(
++            resources.getBoolean(R.bool.config_defaultMicMode)
++        )
+ 
+         // Handle intent
+         intent.action?.let {
+diff --git a/app/src/main/java/org/lineageos/aperture/ext/SharedPreferences.kt b/app/src/main/java/org/lineageos/aperture/ext/SharedPreferences.kt
+index 1f44e26..f263416 100644
+--- a/app/src/main/java/org/lineageos/aperture/ext/SharedPreferences.kt
++++ b/app/src/main/java/org/lineageos/aperture/ext/SharedPreferences.kt
+@@ -123,6 +123,10 @@ internal var SharedPreferences.lastMicMode: Boolean
+         putBoolean(LAST_MIC_MODE_KEY, value)
+     }
+ 
++internal fun SharedPreferences.getLastMicMode(defaultValue: Boolean): Boolean {
++    return getBoolean(LAST_MIC_MODE_KEY, defaultValue)
++}
++
+ // Photos prefs
+ private const val PHOTO_CAPTURE_MODE_KEY = "photo_capture_mode"
+ private const val PHOTO_CAPTURE_MODE_DEFAULT = "minimize_latency"
+diff --git a/app/src/main/res/values/config.xml b/app/src/main/res/values/config.xml
+index 39d9698..83dc653 100644
+--- a/app/src/main/res/values/config.xml
++++ b/app/src/main/res/values/config.xml
+@@ -84,4 +84,7 @@
+     <!-- Whether we should use high resolution output size or not.
+          See: StreamConfigurationMap.getHighResolutionOutputSizes() for more info. -->
+     <bool name="config_enableHighResolution">true</bool>
++
++    <!-- Default microphone state for video recording before the user changes it. -->
++    <bool name="config_defaultMicMode">true</bool>
+ </resources>

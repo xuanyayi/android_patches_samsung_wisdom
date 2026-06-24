@@ -1,30 +1,13 @@
-diff --git a/config/Android.mk b/config/Android.mk
-index 90ce7831..8e6a4eae 100644
---- a/config/Android.mk
-+++ b/config/Android.mk
-@@ -25,9 +25,10 @@ LOCAL_PRODUCT_MODULE := true
- 
- _build-manifest_intermediates := $(call intermediates-dir-for,$(LOCAL_MODULE_CLASS),$(LOCAL_MODULE))
- _build-manifest_xml := $(_build-manifest_intermediates)/$(LOCAL_MODULE)$(LOCAL_MODULE_SUFFIX)
-+_build-manifest_home := $(_build-manifest_intermediates)/repo-home
- 
- $(_build-manifest_xml):
--	mkdir -p $(dir $@)
--	python3 .repo/repo/repo manifest -o - -r | grep -Ev "proprietary_$(MANIFEST_EXCLUDES)" > $@
-+	mkdir -p $(dir $@) $(_build-manifest_home)
-+	HOME=$(_build-manifest_home) python3 .repo/repo/repo manifest -o - -r | grep -Ev "proprietary_$(MANIFEST_EXCLUDES)" > $@
- 
- include $(BUILD_SYSTEM)/base_rules.mk
 diff --git a/config/common.mk b/config/common.mk
-index 985e611c..d3da2f00 100644
+index 5265427b..f9693971 100644
 --- a/config/common.mk
 +++ b/config/common.mk
-@@ -118,11 +118,15 @@ PRODUCT_PACKAGES += \
+@@ -140,11 +140,15 @@ PRODUCT_PACKAGES += \
+ endif
+ 
  PRODUCT_PACKAGES += \
-     LineageParts \
-     LineageSettingsProvider \
--    LineageSetupWizard \
-+    LineageSetupWizard
+-    LineageSettingsProvider \
++    LineageSettingsProvider
 +
 +ifneq ($(TARGET_DISABLE_LINEAGE_UPDATER),true)
 +PRODUCT_PACKAGES += \
@@ -36,35 +19,13 @@ index 985e611c..d3da2f00 100644
  
  # Config
  PRODUCT_PACKAGES += \
-@@ -214,11 +218,13 @@ PRODUCT_PACKAGES += \
-     NetworkStackOverlay
- 
- # Translations
-+ifneq ($(LINEAGE_SKIP_CUSTOM_LOCALES),true)
- CUSTOM_LOCALES += \
-     ast_ES \
-     gd_GB \
-     cy_GB \
-     fur_IT
-+endif
- 
- PRODUCT_ENFORCE_RRO_EXCLUDED_OVERLAYS += vendor/crowdin/overlay
- PRODUCT_PACKAGE_OVERLAYS += vendor/crowdin/overlay
-diff --git a/config/common_mobile.mk b/config/common_mobile.mk
-index 28ebeefc..ea27a465 100644
---- a/config/common_mobile.mk
-+++ b/config/common_mobile.mk
-@@ -15,8 +15,12 @@ PRODUCT_PRODUCT_PROPERTIES += \
- # Apps
- PRODUCT_PACKAGES += \
-     Backgrounds \
--    ExactCalculator \
-+    ExactCalculator
-+
-+ifneq ($(TARGET_EXCLUDES_JELLY),true)
-+PRODUCT_PACKAGES += \
-     Jelly
-+endif
- 
- ifeq ($(PRODUCT_TYPE), go)
- PRODUCT_PACKAGES += \
+diff --git a/config/device_framework_matrix.xml b/config/device_framework_matrix.xml
+index a0a11316..c4e02cae 100644
+--- a/config/device_framework_matrix.xml
++++ b/config/device_framework_matrix.xml
+@@ -1,4 +1,4 @@
+-<?xml version="2.0" encoding="UTF-8"?>
++<?xml version="1.0" encoding="UTF-8"?>
+ <!--
+      Copyright (C) 2021-2025 The LineageOS Project
+      SPDX-License-Identifier: Apache-2.0

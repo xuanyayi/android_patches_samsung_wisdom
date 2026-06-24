@@ -1,191 +1,63 @@
-diff --git a/fs_mgr/fs_mgr.cpp b/fs_mgr/fs_mgr.cpp
-index f1ec0bb97..b88e7d6c9 100644
---- a/fs_mgr/fs_mgr.cpp
-+++ b/fs_mgr/fs_mgr.cpp
-@@ -741,8 +741,9 @@ static int prepare_fs_for_mount(const std::string& blk_device, const FstabEntry&
-         }
-     }
- 
--    if (entry.fs_mgr_flags.check ||
--        (fs_stat & (FS_STAT_UNCLEAN_SHUTDOWN | FS_STAT_QUOTA_ENABLED))) {
-+    if (!entry.fs_mgr_flags.no_fsck &&
-+        (entry.fs_mgr_flags.check ||
-+         (fs_stat & (FS_STAT_UNCLEAN_SHUTDOWN | FS_STAT_QUOTA_ENABLED)))) {
-         check_fs(blk_device, entry.fs_type, mount_point, &fs_stat);
-     }
- 
-@@ -934,7 +935,9 @@ static bool mount_with_alternatives(const Fstab& fstab, int start_idx, int* end_
-                     mount_errno = errno;
-                 }
-                 // retry after fsck
--                check_fs(fstab[i].blk_device, fstab[i].fs_type, fstab[i].mount_point, &fs_stat);
-+                if (!fstab[i].fs_mgr_flags.no_fsck) {
-+                    check_fs(fstab[i].blk_device, fstab[i].fs_type, fstab[i].mount_point, &fs_stat);
-+                }
-             }
-         }
-         log_fs_stat(fstab[i].blk_device, fs_stat);
-@@ -1920,7 +1923,9 @@ static int fs_mgr_do_mount_helper(Fstab* fstab, const std::string& n_name,
-                 mount_errors++;
-                 fs_stat |= FS_STAT_FULL_MOUNT_FAILED;
-                 // try again after fsck
--                check_fs(n_blk_device, fstab_entry.fs_type, mount_point, &fs_stat);
-+                if (!fstab_entry.fs_mgr_flags.no_fsck) {
-+                    check_fs(n_blk_device, fstab_entry.fs_type, mount_point, &fs_stat);
-+                }
-             }
-         }
-         log_fs_stat(fstab_entry.blk_device, fs_stat);
-diff --git a/fs_mgr/fs_mgr_fstab.cpp b/fs_mgr/fs_mgr_fstab.cpp
-index fc200b2d5..1410cdc7b 100644
---- a/fs_mgr/fs_mgr_fstab.cpp
-+++ b/fs_mgr/fs_mgr_fstab.cpp
-@@ -183,6 +183,7 @@ bool ParseFsMgrFlags(const std::string& flags, FstabEntry* entry) {
-         CheckFlag("fscompress", fs_compress);
-         CheckFlag("overlayfs_remove_missing_lowerdir", overlayfs_remove_missing_lowerdir);
-         CheckFlag("wrappedkey", wrapped_key);
-+        CheckFlag("nofsck", no_fsck);
- 
- #undef CheckFlag
- 
-diff --git a/fs_mgr/include_fstab/fstab/fstab.h b/fs_mgr/include_fstab/fstab/fstab.h
-index ee1ff58bd..ae1e842f1 100644
---- a/fs_mgr/include_fstab/fstab/fstab.h
-+++ b/fs_mgr/include_fstab/fstab/fstab.h
-@@ -83,6 +83,7 @@ struct FstabEntry {
-         bool fs_compress : 1;
-         bool overlayfs_remove_missing_lowerdir : 1;
-         bool wrapped_key : 1;
-+        bool no_fsck : 1;
-     } fs_mgr_flags = {};
- 
-     bool is_encryptable() const { return fs_mgr_flags.crypt; }
-diff --git a/fs_mgr/tests/fs_mgr_test.cpp b/fs_mgr/tests/fs_mgr_test.cpp
-index 6c881c0bf..5ca6c028e 100644
---- a/fs_mgr/tests/fs_mgr_test.cpp
-+++ b/fs_mgr/tests/fs_mgr_test.cpp
-@@ -206,7 +206,8 @@ bool CompareFlags(FstabEntry::FsMgrFlags& lhs, FstabEntry::FsMgrFlags& rhs) {
-            lhs.checkpoint_fs == rhs.checkpoint_fs &&
-            lhs.first_stage_mount == rhs.first_stage_mount &&
-            lhs.slot_select_other == rhs.slot_select_other &&
--           lhs.fs_verity == rhs.fs_verity;
-+           lhs.fs_verity == rhs.fs_verity &&
-+           lhs.no_fsck == rhs.no_fsck;
-     // clang-format on
- }
- 
-@@ -411,7 +412,7 @@ source none0       swap   defaults      wait,check,nonremovable,recoveryonly
- source none1       swap   defaults      avb,noemulatedsd,notrim,formattable,nofail
- source none2       swap   defaults      first_stage_mount,latemount,quota,logical
- source none3       swap   defaults      checkpoint=block
--source none4       swap   defaults      checkpoint=fs
-+source none4       swap   defaults      checkpoint=fs,nofsck
- source none5       swap   defaults      defaults
- )fs";
-     ASSERT_TRUE(android::base::WriteStringToFile(fstab_contents, tf.path));
-@@ -467,6 +468,7 @@ source none5       swap   defaults      defaults
-     {
-         FstabEntry::FsMgrFlags flags = {};
-         flags.checkpoint_fs = true;
-+        flags.no_fsck = true;
-         EXPECT_TRUE(CompareFlags(flags, entry->fs_mgr_flags));
-     }
- 
-diff --git a/init/selinux.cpp b/init/selinux.cpp
-index be8c5542f..d91dc3dd9 100644
---- a/init/selinux.cpp
-+++ b/init/selinux.cpp
-@@ -978,7 +978,7 @@ int SetupSelinux(char** argv) {
-     // needed to transition files from tmpfs to *_contexts_file context should not be granted to
-     // any process after selinux is set into enforcing mode.
-     if (selinux_android_restorecon("/dev/selinux/", SELINUX_ANDROID_RESTORECON_RECURSE) == -1) {
--        PLOG(FATAL) << "restorecon failed of /dev/selinux failed";
-+        PLOG(ERROR) << "restorecon failed of /dev/selinux failed";
-     }
- 
-     SelinuxSetEnforcement();
-@@ -988,7 +988,7 @@ int SetupSelinux(char** argv) {
-     // but other file systems do.  In particular, this is needed for ramdisks such as the
-     // recovery image for A/B devices.
-     if (selinux_android_restorecon("/system/bin/init", 0) == -1) {
--        PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
-+        PLOG(ERROR) << "restorecon failed of /system/bin/init failed";
-     }
- 
-     setenv(kEnvSelinuxStartedAt, std::to_string(start_time.time_since_epoch().count()).c_str(), 1);
 diff --git a/libprocessgroup/processgroup.cpp b/libprocessgroup/processgroup.cpp
-index 267e62c67..4df2166f4 100644
+index 95221594b..300106557 100644
 --- a/libprocessgroup/processgroup.cpp
 +++ b/libprocessgroup/processgroup.cpp
-@@ -58,7 +58,7 @@ using namespace std::chrono_literals;
- bool CgroupGetControllerPath(const std::string& cgroup_name, std::string* path) {
-     auto controller = CgroupMap::GetInstance().FindController(cgroup_name);
- 
--    if (!controller.HasValue()) {
-+    if (!controller.IsUsable()) {
-         return false;
+@@ -711,8 +711,17 @@ int createProcessGroup(uid_t uid, pid_t initialPid, bool memControl) {
      }
  
-@@ -541,6 +541,7 @@ static int createProcessGroupInternal(uid_t uid, int initialPid, std::string cgr
- 
- int createProcessGroup(uid_t uid, int initialPid, bool memControl) {
      std::string cgroup;
-+    bool cgroup_v2 = false;
- 
-     if (memControl && !UsePerAppMemcg()) {
-         PLOG(ERROR) << "service memory controls are used without per-process memory cgroup support";
-@@ -558,8 +559,13 @@ int createProcessGroup(uid_t uid, int initialPid, bool memControl) {
-         }
-     }
- 
--    CgroupGetControllerPath(CGROUPV2_CONTROLLER_NAME, &cgroup);
+-    CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &cgroup);
 -    return createProcessGroupInternal(uid, initialPid, cgroup, true);
-+    if (CgroupGetControllerPath(CGROUPV2_CONTROLLER_NAME, &cgroup)) {
-+        cgroup_v2 = true;
-+    } else if (!CgroupGetMemcgAppsPath(&cgroup)) {
-+        LOG(ERROR) << "Process cgroup controller is not mounted.";
-+        return -ENOENT;
++    if (CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &cgroup) &&
++        access((cgroup + "/cgroup.controllers").c_str(), F_OK) == 0) {
++        return createProcessGroupInternal(uid, initialPid, cgroup, true);
 +    }
-+    return createProcessGroupInternal(uid, initialPid, cgroup, cgroup_v2);
++
++    if (CgroupGetMemcgAppsPath(&cgroup) && access(cgroup.c_str(), F_OK) == 0) {
++        return createProcessGroupInternal(uid, initialPid, cgroup, false);
++    }
++
++    LOG(ERROR) << "Process cgroup controller is not mounted.";
++    return -ENOENT;
  }
  
- static bool SetProcessGroupValue(int tid, const std::string& attr_name, int64_t value) {
-diff --git a/rootdir/init.usb.configfs.rc b/rootdir/init.usb.configfs.rc
-index 3a33c94d3..50a747305 100644
---- a/rootdir/init.usb.configfs.rc
-+++ b/rootdir/init.usb.configfs.rc
-@@ -25,7 +25,7 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=adb && property:sys.u
+ static bool SetProcessGroupValue(pid_t tid, const std::string& attr_name, int64_t value) {
+diff --git a/libprocessgroup/profiles/cgroups.json b/libprocessgroup/profiles/cgroups.json
+index 3e4393df2..82a5e3ec0 100644
+--- a/libprocessgroup/profiles/cgroups.json
++++ b/libprocessgroup/profiles/cgroups.json
+@@ -35,6 +35,7 @@
+     "Mode": "0775",
+     "UID": "system",
+     "GID": "system",
++    "Optional": true,
+     "Controllers": [
+       {
+         "Controller": "freezer",
+diff --git a/rootdir/init.rc b/rootdir/init.rc
+index 0cc129707..98230e801 100644
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -704,7 +704,8 @@ on post-fs-data
+     # We restorecon /data in case the userdata partition has been reset.
+     restorecon /data
  
- on property:sys.usb.config=mtp && property:sys.usb.configfs=1
-     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "mtp"
--    symlink /config/usb_gadget/g1/functions/mtp.gs0 /config/usb_gadget/g1/configs/b.1/f1
-+    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
-     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
-     setprop sys.usb.state ${sys.usb.config}
+-    # Make sure we have the device encryption key.
++    # FBE requires vold to create /data/unencrypted/ref and mode before init
++    # creates encrypted /data subdirectories below.
+     installkey /data
  
-@@ -34,14 +34,14 @@ on property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
+     # Start bootcharting as soon as possible after the data partition is
+@@ -1126,7 +1127,11 @@ on property:vold.checkpoint_committed=1
+ # stuff) and we absolutely want to be before netd and the system boot slot is
+ # considered to have booted successfully.
+ on load-bpf-programs
+-    exec_start bpfloader
++    # SM-P205/wisdom is temporarily booting LOS 22.2 with a legacy 4.4
++    # prebuilt kernel, where Android 15 mainline netbpfload cannot succeed.
++    # Skip it for minimal boot bring-up and unblock netd's BPF readiness wait.
++    setprop bpf.progs_loaded 1
++    # exec_start bpfloader
  
- on property:sys.usb.ffs.ready=1 && property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
-     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "mtp_adb"
--    symlink /config/usb_gadget/g1/functions/mtp.gs0 /config/usb_gadget/g1/configs/b.1/f1
-+    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
-     symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
-     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
-     setprop sys.usb.state ${sys.usb.config}
- 
- on property:sys.usb.config=ptp && property:sys.usb.configfs=1
-     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "ptp"
--    symlink /config/usb_gadget/g1/functions/ptp.gs1 /config/usb_gadget/g1/configs/b.1/f1
-+    symlink /config/usb_gadget/g1/functions/ffs.ptp /config/usb_gadget/g1/configs/b.1/f1
-     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
-     setprop sys.usb.state ${sys.usb.config}
- 
-@@ -50,7 +50,7 @@ on property:sys.usb.config=ptp,adb && property:sys.usb.configfs=1
- 
- on property:sys.usb.ffs.ready=1 && property:sys.usb.config=ptp,adb && property:sys.usb.configfs=1
-     write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "ptp_adb"
--    symlink /config/usb_gadget/g1/functions/ptp.gs1 /config/usb_gadget/g1/configs/b.1/f1
-+    symlink /config/usb_gadget/g1/functions/ffs.ptp /config/usb_gadget/g1/configs/b.1/f1
-     symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
-     write /config/usb_gadget/g1/UDC ${sys.usb.controller}
-     setprop sys.usb.state ${sys.usb.config}
+ on bpf-progs-loaded
+     start netd

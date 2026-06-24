@@ -1,0 +1,52 @@
+diff --git a/include/tinyalsa/asoundlib.h b/include/tinyalsa/asoundlib.h
+index c0f4746..a0582e1 100644
+--- a/include/tinyalsa/asoundlib.h
++++ b/include/tinyalsa/asoundlib.h
+@@ -325,6 +325,7 @@ const char *mixer_ctl_get_enum_string(struct mixer_ctl *ctl,
+  * such as HDMI EDID byte data changing when an HDMI cable is
+  * connected. This API allows the count of elements to be updated.
+  */
++void mixer_update(struct mixer *mixer);
+ void mixer_ctl_update(struct mixer_ctl *ctl);
+ 
+ /* Set and get mixer controls */
+diff --git a/mixer.c b/mixer.c
+index 506e0ef..e813fbb 100644
+--- a/mixer.c
++++ b/mixer.c
+@@ -87,6 +87,8 @@ struct mixer {
+     unsigned int total_ctl_count;
+ };
+ 
++void mixer_ctl_update(struct mixer_ctl *ctl);
++
+ static void mixer_grp_close(struct mixer_ctl_group *grp)
+ {
+     unsigned int n, m;
+@@ -411,6 +413,26 @@ struct mixer_ctl *mixer_get_ctl_by_name(struct mixer *mixer, const char *name)
+     return NULL;
+ }
+ 
++static void mixer_grp_update(struct mixer_ctl_group *grp)
++{
++    unsigned int n;
++
++    if (!grp)
++        return;
++
++    for (n = 0; n < grp->count; n++)
++        mixer_ctl_update(&grp->ctl[n]);
++}
++
++void mixer_update(struct mixer *mixer)
++{
++    if (!mixer)
++        return;
++
++    mixer_grp_update(mixer->hw_grp);
++    mixer_grp_update(mixer->virt_grp);
++}
++
+ void mixer_ctl_update(struct mixer_ctl *ctl)
+ {
+     struct mixer_ctl_group *grp;

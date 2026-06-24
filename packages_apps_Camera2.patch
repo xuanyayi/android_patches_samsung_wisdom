@@ -1,0 +1,29 @@
+diff --git a/src/com/android/camera/CaptureModule.java b/src/com/android/camera/CaptureModule.java
+index 32417f60e..387cfdbf3 100644
+--- a/src/com/android/camera/CaptureModule.java
++++ b/src/com/android/camera/CaptureModule.java
+@@ -88,6 +88,7 @@ import com.android.camera.util.CameraUtil;
+ import com.android.camera.util.GcamHelper;
+ import com.android.camera.util.Size;
+ import com.android.camera2.R;
++import com.android.ex.camera2.portability.CameraDeviceInfo;
+ import com.android.ex.camera2.portability.CameraAgent.CameraProxy;
+ import com.google.common.logging.eventprotos;
+ 
+@@ -1590,8 +1591,14 @@ public class CaptureModule extends CameraModule implements
+      * Returns which way around the camera is facing, based on it's ID.
+      */
+     private Facing getFacingFromCameraId(int cameraId) {
+-        return mAppController.getCameraProvider().getCharacteristics(cameraId)
+-                .isFacingFront() ? Facing.FRONT : Facing.BACK;
++        CameraDeviceInfo.Characteristics characteristics =
++                mAppController.getCameraProvider().getCharacteristics(cameraId);
++        if (characteristics == null) {
++            Log.e(TAG, "Camera characteristics unavailable for id=" + cameraId);
++            mAppController.getFatalErrorHandler().onGenericCameraAccessFailure();
++            return Facing.BACK;
++        }
++        return characteristics.isFacingFront() ? Facing.FRONT : Facing.BACK;
+     }
+ 
+     private void resetTextureBufferSize() {

@@ -1,49 +1,319 @@
-diff --git a/wpa_supplicant/aidl/supplicant.cpp b/wpa_supplicant/aidl/supplicant.cpp
-index 799790b2..4e7c0d08 100644
---- a/wpa_supplicant/aidl/supplicant.cpp
-+++ b/wpa_supplicant/aidl/supplicant.cpp
-@@ -41,6 +41,7 @@ static const char* kTemplateConfPaths[] = {
- };
- constexpr char kOldStaIfaceConfPath[] = "/data/misc/wifi/wpa_supplicant.conf";
- constexpr char kOldP2pIfaceConfPath[] = "/data/misc/wifi/p2p_supplicant.conf";
-+constexpr char kCtrlIfaceDir[] = "/data/vendor/wifi/wpa/sockets";
- constexpr mode_t kConfigFileMode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
- 
- const char* resolvePath(const char* paths[], size_t size)
-@@ -161,6 +162,20 @@ int ensureConfigFileExists(
- 	// Did not create the conf file.
- 	return -1;
- }
+diff --git a/wpa_supplicant/aidl/vendor/aidl_manager.cpp b/wpa_supplicant/aidl/vendor/aidl_manager.cpp
+index 177f4789..17f72fad 100644
+--- a/wpa_supplicant/aidl/vendor/aidl_manager.cpp
++++ b/wpa_supplicant/aidl/vendor/aidl_manager.cpp
+@@ -50,7 +50,15 @@ using aidl::android::hardware::wifi::supplicant::KeyMgmtMask;
+  */
+ constexpr bool isP2pIface(const struct wpa_supplicant *wpa_s)
+ {
+-	return wpa_s->global->p2p_init_wpa_s == wpa_s;
++	return wpa_s->global->p2p_init_wpa_s == wpa_s || wpa_s->p2p_mgmt ||
++	       os_strncmp(wpa_s->ifname, "p2p", 3) == 0;
++}
 +
-+void removeStaleCtrlIfaceSocket(const std::string& ifname)
++constexpr bool isP2pNetwork(
++	const struct wpa_supplicant *wpa_s, const struct wpa_ssid *ssid)
 +{
-+	std::string socket_path = std::string(kCtrlIfaceDir) + "/" + ifname;
-+	if (unlink(socket_path.c_str()) == 0) {
++	return ssid->p2p_group || ssid->p2p_persistent_group || wpa_s->p2p_mgmt ||
++	       os_strncmp(wpa_s->ifname, "p2p", 3) == 0;
+ }
+ 
+ /**
+@@ -470,6 +478,20 @@ int AidlManager::registerInterface(struct wpa_supplicant *wpa_s)
+ 			wpa_s->ifname,
+ 			ndk::SharedRefBase::make<P2pIface>(wpa_s->global, wpa_s->ifname),
+ 			p2p_iface_object_map_)) {
++			if (p2p_iface_object_map_.find(wpa_s->ifname) !=
++				p2p_iface_object_map_.end()) {
++				wpa_printf(
++					MSG_INFO,
++					"P2P interface already registered with AIDL "
++					"control: %s",
++					wpa_s->ifname);
++				if (p2p_iface_callbacks_map_.find(wpa_s->ifname) ==
++					p2p_iface_callbacks_map_.end()) {
++					p2p_iface_callbacks_map_[wpa_s->ifname] =
++						std::vector<std::shared_ptr<ISupplicantP2pIfaceCallback>>();
++				}
++				return 0;
++			}
+ 			wpa_printf(
+ 				MSG_ERROR,
+ 				"Failed to register P2P interface with AIDL "
+@@ -484,6 +506,20 @@ int AidlManager::registerInterface(struct wpa_supplicant *wpa_s)
+ 			wpa_s->ifname,
+ 			ndk::SharedRefBase::make<StaIface>(wpa_s->global, wpa_s->ifname),
+ 			sta_iface_object_map_)) {
++			if (sta_iface_object_map_.find(wpa_s->ifname) !=
++				sta_iface_object_map_.end()) {
++				wpa_printf(
++					MSG_INFO,
++					"STA interface already registered with AIDL "
++					"control: %s",
++					wpa_s->ifname);
++				if (sta_iface_callbacks_map_.find(wpa_s->ifname) ==
++					sta_iface_callbacks_map_.end()) {
++					sta_iface_callbacks_map_[wpa_s->ifname] =
++						std::vector<std::shared_ptr<ISupplicantStaIfaceCallback>>();
++				}
++				return 0;
++			}
+ 			wpa_printf(
+ 				MSG_ERROR,
+ 				"Failed to register STA interface with AIDL "
+@@ -585,7 +621,7 @@ int AidlManager::registerNetwork(
+ 	const std::string network_key =
+ 		getNetworkObjectMapKey(wpa_s->ifname, ssid->id);
+ 
+-	if (isP2pIface(wpa_s)) {
++	if (isP2pNetwork(wpa_s, ssid)) {
+ 		if (addAidlObjectToMap<P2pNetwork>(
+ 			network_key,
+ 			ndk::SharedRefBase::make<P2pNetwork>(wpa_s->global, wpa_s->ifname, ssid->id),
+@@ -641,7 +677,7 @@ int AidlManager::unregisterNetwork(
+ 	const std::string network_key =
+ 		getNetworkObjectMapKey(wpa_s->ifname, ssid->id);
+ 
+-	if (isP2pIface(wpa_s)) {
++	if (isP2pNetwork(wpa_s, ssid)) {
+ 		if (removeAidlObjectFromMap(
+ 			network_key, p2p_network_object_map_)) {
+ 			wpa_printf(
+@@ -2388,6 +2424,37 @@ int AidlManager::getP2pIfaceAidlObjectByIfname(
+ 	return 0;
+ }
+ 
++int AidlManager::ensureP2pIfaceAidlObject(struct wpa_supplicant *wpa_s)
++{
++	if (!wpa_s)
++		return 1;
++
++	std::shared_ptr<ISupplicantP2pIface> iface_object;
++	if (!getP2pIfaceAidlObjectByIfname(wpa_s->ifname, &iface_object))
++		return 0;
++
++	wpa_printf(
++		MSG_INFO,
++		"Rebuilding missing P2P interface AIDL object: %s",
++		wpa_s->ifname);
++	if (addAidlObjectToMap<P2pIface>(
++		wpa_s->ifname,
++		ndk::SharedRefBase::make<P2pIface>(wpa_s->global, wpa_s->ifname),
++		p2p_iface_object_map_)) {
 +		wpa_printf(
-+			MSG_INFO, "Removed stale ctrl_iface socket %s",
-+			socket_path.c_str());
++			MSG_ERROR,
++			"Failed to rebuild P2P interface AIDL object: %s",
++			wpa_s->ifname);
++		return 1;
++	}
++	if (p2p_iface_callbacks_map_.find(wpa_s->ifname) ==
++		p2p_iface_callbacks_map_.end()) {
++		p2p_iface_callbacks_map_[wpa_s->ifname] =
++			std::vector<std::shared_ptr<ISupplicantP2pIfaceCallback>>();
++	}
++	return 0;
++}
++
+ /**
+  * Retrieve the |ISupplicantStaIface| aidl object reference using the provided
+  * ifname.
+@@ -2411,6 +2478,37 @@ int AidlManager::getStaIfaceAidlObjectByIfname(
+ 	return 0;
+ }
+ 
++int AidlManager::ensureStaIfaceAidlObject(struct wpa_supplicant *wpa_s)
++{
++	if (!wpa_s)
++		return 1;
++
++	std::shared_ptr<ISupplicantStaIface> iface_object;
++	if (!getStaIfaceAidlObjectByIfname(wpa_s->ifname, &iface_object))
++		return 0;
++
++	wpa_printf(
++		MSG_INFO,
++		"Rebuilding missing STA interface AIDL object: %s",
++		wpa_s->ifname);
++	if (addAidlObjectToMap<StaIface>(
++		wpa_s->ifname,
++		ndk::SharedRefBase::make<StaIface>(wpa_s->global, wpa_s->ifname),
++		sta_iface_object_map_)) {
++		wpa_printf(
++			MSG_ERROR,
++			"Failed to rebuild STA interface AIDL object: %s",
++			wpa_s->ifname);
++		return 1;
++	}
++	if (sta_iface_callbacks_map_.find(wpa_s->ifname) ==
++		sta_iface_callbacks_map_.end()) {
++		sta_iface_callbacks_map_[wpa_s->ifname] =
++			std::vector<std::shared_ptr<ISupplicantStaIfaceCallback>>();
++	}
++	return 0;
++}
++
+ /**
+  * Retrieve the |ISupplicantP2pNetwork| aidl object reference using the provided
+  * ifname and network_id.
+diff --git a/wpa_supplicant/aidl/vendor/aidl_manager.h b/wpa_supplicant/aidl/vendor/aidl_manager.h
+index 46a40aa2..f29e330e 100644
+--- a/wpa_supplicant/aidl/vendor/aidl_manager.h
++++ b/wpa_supplicant/aidl/vendor/aidl_manager.h
+@@ -190,9 +190,11 @@ public:
+ 	int getP2pIfaceAidlObjectByIfname(
+ 		const std::string &ifname,
+ 		std::shared_ptr<ISupplicantP2pIface> *iface_object);
++	int ensureP2pIfaceAidlObject(struct wpa_supplicant *wpa_s);
+ 	int getStaIfaceAidlObjectByIfname(
+ 		const std::string &ifname,
+ 		std::shared_ptr<ISupplicantStaIface> *iface_object);
++	int ensureStaIfaceAidlObject(struct wpa_supplicant *wpa_s);
+ 	int getP2pNetworkAidlObjectByIfnameAndNetworkId(
+ 		const std::string &ifname, int network_id,
+ 		std::shared_ptr<ISupplicantP2pNetwork> *network_object);
+diff --git a/wpa_supplicant/aidl/vendor/supplicant.cpp b/wpa_supplicant/aidl/vendor/supplicant.cpp
+index 0cb23423..98d3b6f6 100644
+--- a/wpa_supplicant/aidl/vendor/supplicant.cpp
++++ b/wpa_supplicant/aidl/vendor/supplicant.cpp
+@@ -33,6 +33,7 @@ constexpr char kP2pIfaceConfPath[] =
+ 	"/data/vendor/wifi/wpa/p2p_supplicant.conf";
+ constexpr char kP2pIfaceConfOverlayPath[] =
+     "/etc/wifi/p2p_supplicant_overlay.conf";
++constexpr char kCtrlIfaceDir[] = "/data/vendor/wifi/wpa/sockets";
+ 
+ // Migrate conf files for existing devices.
+ constexpr char kSystemTemplateConfPath[] =
+@@ -54,6 +55,27 @@ std::string resolveVendorConfPath(const std::string& conf_path)
+ #endif
+ }
+ 
++void cleanupStaleIfaceArtifacts(struct wpa_global* wpa_global, const std::string& name,
++				const char* type)
++{
++	struct wpa_supplicant* stale_iface =
++		wpa_supplicant_get_iface(wpa_global, name.c_str());
++	if (stale_iface) {
++		wpa_printf(MSG_INFO, "Removing stale %s iface %s before retrying add",
++			   type, name.c_str());
++		wpa_supplicant_remove_iface(wpa_global, stale_iface, 0);
++	}
++
++	std::string ctrl_iface_path = std::string(kCtrlIfaceDir) + "/" + name;
++	if (unlink(ctrl_iface_path.c_str()) == 0) {
++		wpa_printf(MSG_INFO, "Removed stale ctrl_iface socket %s",
++			   ctrl_iface_path.c_str());
 +	} else if (errno != ENOENT) {
-+		wpa_printf(
-+			MSG_DEBUG, "Unable to remove ctrl_iface socket %s: %s",
-+			socket_path.c_str(), strerror(errno));
++		wpa_printf(MSG_DEBUG, "Failed to remove stale ctrl_iface socket %s: %s",
++			   ctrl_iface_path.c_str(), strerror(errno));
 +	}
 +}
- }  // namespace
- 
- namespace aidl {
-@@ -382,6 +397,7 @@ Supplicant::addP2pInterfaceInternal(const std::string& name)
++
+ int copyFile(
+ 	const std::string& src_file_path, const std::string& dest_file_path)
+ {
+@@ -399,6 +421,16 @@ Supplicant::addP2pInterfaceInternal(const std::string& name)
+ 		struct wpa_supplicant* wpa_s =
+ 			wpa_supplicant_add_iface(wpa_global_, &iface_params, NULL);
+ 		if (!wpa_s) {
++			cleanupStaleIfaceArtifacts(wpa_global_, name, "P2P");
++			wpa_s = wpa_supplicant_add_iface(wpa_global_, &iface_params, NULL);
++			if (wpa_s) {
++				wpa_printf(MSG_INFO, "P2P iface %s added after cleanup retry",
++					   name.c_str());
++			}
++		}
++		if (!wpa_s) {
++			wpa_printf(MSG_ERROR, "Failed to add P2P iface %s after cleanup retry",
++				   name.c_str());
+ 			return {nullptr, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
+ 		}
+ 		// Request the current scan results from the driver and update
+@@ -458,6 +490,16 @@ Supplicant::addStaInterfaceInternal(const std::string& name)
+ 		struct wpa_supplicant* wpa_s =
+ 			wpa_supplicant_add_iface(wpa_global_, &iface_params, NULL);
+ 		if (!wpa_s) {
++			cleanupStaleIfaceArtifacts(wpa_global_, name, "STA");
++			wpa_s = wpa_supplicant_add_iface(wpa_global_, &iface_params, NULL);
++			if (wpa_s) {
++				wpa_printf(MSG_INFO, "STA iface %s added after cleanup retry",
++					   name.c_str());
++			}
++		}
++		if (!wpa_s) {
++			wpa_printf(MSG_ERROR, "Failed to add STA iface %s after cleanup retry",
++				   name.c_str());
+ 			return {nullptr, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
+ 		}
+ 		// Request the current scan results from the driver and update
+@@ -497,7 +539,12 @@ Supplicant::getP2pInterfaceInternal(const std::string& name)
+ 	if (!aidl_manager ||
+ 		aidl_manager->getP2pIfaceAidlObjectByIfname(
+ 		wpa_s->ifname, &iface)) {
+-		return {iface, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
++		if (!aidl_manager || aidl_manager->ensureP2pIfaceAidlObject(wpa_s) ||
++			aidl_manager->getP2pIfaceAidlObjectByIfname(wpa_s->ifname, &iface)) {
++			wpa_printf(MSG_ERROR, "No AIDL object for P2P iface %s",
++				   wpa_s->ifname);
++			return {iface, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
++		}
  	}
- 
- 	iface_params.ifname = name.c_str();
-+	removeStaleCtrlIfaceSocket(name);
- 	if (strncmp(iface_params.ifname, P2P_MGMT_DEVICE_PREFIX,
- 		strlen(P2P_MGMT_DEVICE_PREFIX)) == 0) {
- 		status = addP2pDevInterface(iface_params);
-@@ -442,6 +458,7 @@ Supplicant::addStaInterfaceInternal(const std::string& name)
+ 	// Set this flag true here, since there is no AIDL initialize
+ 	// method for the p2p config, and the supplicant interface is
+@@ -519,7 +566,12 @@ Supplicant::getStaInterfaceInternal(const std::string& name)
+ 	if (!aidl_manager ||
+ 		aidl_manager->getStaIfaceAidlObjectByIfname(
+ 		wpa_s->ifname, &iface)) {
+-		return {iface, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
++		if (!aidl_manager || aidl_manager->ensureStaIfaceAidlObject(wpa_s) ||
++			aidl_manager->getStaIfaceAidlObjectByIfname(wpa_s->ifname, &iface)) {
++			wpa_printf(MSG_ERROR, "No AIDL object for STA iface %s",
++				   wpa_s->ifname);
++			return {iface, createStatus(SupplicantStatusCode::FAILURE_UNKNOWN)};
++		}
  	}
+ 	return {iface, ndk::ScopedAStatus::ok()};
+ }
+diff --git a/wpa_supplicant/p2p_supplicant.c b/wpa_supplicant/p2p_supplicant.c
+index 768b9178..7a35e5fe 100644
+--- a/wpa_supplicant/p2p_supplicant.c
++++ b/wpa_supplicant/p2p_supplicant.c
+@@ -167,6 +167,22 @@ wpas_p2p_consider_moving_gos(struct wpa_supplicant *wpa_s,
+ static void wpas_p2p_reconsider_moving_go(void *eloop_ctx, void *timeout_ctx);
+ static int wpas_p2p_disallowed_freq(struct wpa_global *global,
+ 				    unsigned int freq);
++static void wpas_p2p_deinit_global(struct wpa_global *global);
++
++static int wpas_p2p_is_kernel_netdev(const char *ifname)
++{
++	const char *pos;
++
++	if (os_strncmp(ifname, "p2p", 3) != 0 || ifname[3] == '\0')
++		return 0;
++
++	for (pos = ifname + 3; *pos; pos++) {
++		if (*pos < '0' || *pos > '9')
++			return 0;
++	}
++
++	return 1;
++}
  
- 	iface_params.ifname = name.c_str();
-+	removeStaleCtrlIfaceSocket(name);
- 	if (strncmp(iface_params.ifname, P2P_MGMT_DEVICE_PREFIX,
- 		strlen(P2P_MGMT_DEVICE_PREFIX)) == 0) {
- 		status = addP2pDevInterface(iface_params);
+ 
+ static int wpas_get_6ghz_he_chwidth_capab(struct hostapd_hw_modes *mode)
+@@ -5002,6 +5018,16 @@ int wpas_p2p_init(struct wpa_global *global, struct wpa_supplicant *wpa_s)
+ 	if (!(wpa_s->drv_flags & WPA_DRIVER_FLAGS_P2P_CAPABLE))
+ 		return 0;
+ 
++	if (global->p2p && global->p2p_init_wpa_s &&
++	    global->p2p_init_wpa_s != wpa_s &&
++	    wpas_p2p_is_kernel_netdev(wpa_s->ifname) &&
++	    !wpas_p2p_is_kernel_netdev(global->p2p_init_wpa_s->ifname)) {
++		wpa_printf(MSG_INFO,
++			   "P2P: Rebind management interface from %s to %s",
++			   global->p2p_init_wpa_s->ifname, wpa_s->ifname);
++		wpas_p2p_deinit_global(global);
++	}
++
+ 	if (global->p2p)
+ 		return 0;
+ 

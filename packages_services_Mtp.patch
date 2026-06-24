@@ -1,0 +1,13 @@
+diff --git a/src/com/android/mtp/MtpService.java b/src/com/android/mtp/MtpService.java
+index 7301f4d..0748019 100644
+--- a/src/com/android/mtp/MtpService.java
++++ b/src/com/android/mtp/MtpService.java
+@@ -190,7 +190,7 @@ public class MtpService extends Service {
+             }
+             FileDescriptor fd = null;
+             if (controlFd == null) {
+-                Log.i(TAG, "Couldn't get control FD!");
++                Log.i(TAG, "Couldn't get FunctionFS control FD; falling back to legacy MTP");
+             } else {
+                 fd = controlFd.getFileDescriptor();
+             }
