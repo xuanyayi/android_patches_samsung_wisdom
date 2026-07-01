@@ -1,63 +1,338 @@
-diff --git a/libprocessgroup/processgroup.cpp b/libprocessgroup/processgroup.cpp
-index 95221594b..300106557 100644
---- a/libprocessgroup/processgroup.cpp
-+++ b/libprocessgroup/processgroup.cpp
-@@ -711,8 +711,17 @@ int createProcessGroup(uid_t uid, pid_t initialPid, bool memControl) {
-     }
+diff --git a/init/first_stage_mount.cpp b/init/first_stage_mount.cpp
+index 0148a5a..907b8c4 100644
+--- a/init/first_stage_mount.cpp
++++ b/init/first_stage_mount.cpp
+@@ -21,6 +21,7 @@
+ #include <sys/mount.h>
+ #include <unistd.h>
  
-     std::string cgroup;
--    CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &cgroup);
--    return createProcessGroupInternal(uid, initialPid, cgroup, true);
-+    if (CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &cgroup) &&
-+        access((cgroup + "/cgroup.controllers").c_str(), F_OK) == 0) {
-+        return createProcessGroupInternal(uid, initialPid, cgroup, true);
++#include <algorithm>
+ #include <chrono>
+ #include <filesystem>
+ #include <map>
+@@ -142,17 +143,32 @@ static inline bool IsDtVbmetaCompatible(const Fstab& fstab) {
+ 
+ static Result<Fstab> ReadFirstStageFstabAndroid() {
+     Fstab fstab;
+-    if (!ReadFstabFromDt(&fstab)) {
+-        if (ReadDefaultFstab(&fstab)) {
+-            fstab.erase(std::remove_if(fstab.begin(), fstab.end(),
+-                                       [](const auto& entry) {
+-                                           return !entry.fs_mgr_flags.first_stage_mount;
+-                                       }),
+-                        fstab.end());
+-        } else {
+-            return Error() << "failed to read default fstab for first stage mount";
++    ReadFstabFromDt(&fstab);
++
++    Fstab default_fstab;
++    if (ReadDefaultFstab(&default_fstab)) {
++        default_fstab.erase(std::remove_if(default_fstab.begin(), default_fstab.end(),
++                                           [](const auto& entry) {
++                                               return !entry.fs_mgr_flags.first_stage_mount;
++                                           }),
++                            default_fstab.end());
++
++        for (auto& entry : default_fstab) {
++            const auto mount_point_matches = [&entry](const auto& existing) {
++                return existing.mount_point == entry.mount_point;
++            };
++            if (std::none_of(fstab.begin(), fstab.end(), mount_point_matches)) {
++                LOG(INFO) << "Adding first-stage fstab entry from default fstab for "
++                          << entry.mount_point;
++                fstab.emplace_back(std::move(entry));
++            }
+         }
+     }
++
++    if (fstab.empty()) {
++        return Error() << "failed to read fstab for first stage mount";
 +    }
 +
-+    if (CgroupGetMemcgAppsPath(&cgroup) && access(cgroup.c_str(), F_OK) == 0) {
-+        return createProcessGroupInternal(uid, initialPid, cgroup, false);
-+    }
-+
-+    LOG(ERROR) << "Process cgroup controller is not mounted.";
-+    return -ENOENT;
+     return fstab;
  }
  
- static bool SetProcessGroupValue(pid_t tid, const std::string& attr_name, int64_t value) {
-diff --git a/libprocessgroup/profiles/cgroups.json b/libprocessgroup/profiles/cgroups.json
-index 3e4393df2..82a5e3ec0 100644
---- a/libprocessgroup/profiles/cgroups.json
-+++ b/libprocessgroup/profiles/cgroups.json
-@@ -35,6 +35,7 @@
-     "Mode": "0775",
-     "UID": "system",
-     "GID": "system",
-+    "Optional": true,
-     "Controllers": [
-       {
-         "Controller": "freezer",
+diff --git a/init/property_service.cpp b/init/property_service.cpp
+index 3c78e76..9f03e04 100644
+--- a/init/property_service.cpp
++++ b/init/property_service.cpp
+@@ -162,6 +162,9 @@ bool CanReadProperty(const std::string& source_context, const std::string& name)
+ 
+ static bool CheckMacPerms(const std::string& name, const char* target_context,
+                           const char* source_context, const ucred& cr) {
++    if (!SelinuxPolicyLoaded()) {
++        return true;
++    }
+     if (!target_context || !source_context) {
+         return false;
+     }
+diff --git a/init/reboot_utils.cpp b/init/reboot_utils.cpp
+index 85a707b..3e86624 100644
+--- a/init/reboot_utils.cpp
++++ b/init/reboot_utils.cpp
+@@ -37,7 +37,7 @@
+ namespace android {
+ namespace init {
+ 
+-[[clang::no_destroy]] static std::string init_fatal_reboot_target = "bootloader";
++[[clang::no_destroy]] static std::string init_fatal_reboot_target = "recovery";
+ static bool init_fatal_panic = false;
+ 
+ // this needs to read the /proc/* files directly because it is called before
+@@ -66,7 +66,7 @@ void SetFatalRebootTarget(const std::optional<std::string>& reboot_target) {
+     auto start_pos = cmdline.find(kRebootTargetString);
+     if (start_pos == std::string::npos) {
+         android::fs_mgr::GetBootconfig(kRebootTargetString, &init_fatal_reboot_target);
+-        // We already default to bootloader if no setting is provided.
++        // Default to recovery for wisdom bring-up so init fatal paths return to TWRP for logs.
+     } else {
+         const std::string kRebootTargetStringPattern = kRebootTargetString + "=";
+         start_pos += sizeof(kRebootTargetStringPattern) - 1;
+diff --git a/init/selinux.cpp b/init/selinux.cpp
+index 93f6312..7b9d7b8 100644
+--- a/init/selinux.cpp
++++ b/init/selinux.cpp
+@@ -97,6 +97,8 @@ namespace init {
+ 
+ namespace {
+ 
++bool g_selinux_policy_loaded = false;
++
+ enum EnforcingStatus { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
+ 
+ EnforcingStatus StatusFromProperty() {
+@@ -638,18 +640,20 @@ void MountMissingSystemPartitions() {
+     }
+ }
+ 
+-static void LoadSelinuxPolicy(std::string& policy) {
++static bool LoadSelinuxPolicy(std::string& policy) {
+     LOG(INFO) << "Loading SELinux policy";
+ 
+     set_selinuxmnt("/sys/fs/selinux");
+     if (security_load_policy(policy.data(), policy.size()) < 0) {
+-        PLOG(FATAL) << "SELinux:  Could not load policy";
++        PLOG(ERROR) << "SELinux:  Could not load policy, continuing for wisdom boot bring-up";
++        return false;
+     }
++    return true;
+ }
+ 
+ // Encapsulates steps to load SELinux policy in Microdroid.
+ // So far the process is very straightforward - just load the precompiled policy from /system.
+-void LoadSelinuxPolicyMicrodroid() {
++bool LoadSelinuxPolicyMicrodroid() {
+     constexpr const char kMicrodroidPrecompiledSepolicy[] =
+             "/system/etc/selinux/microdroid_precompiled_sepolicy";
+ 
+@@ -664,7 +668,7 @@ void LoadSelinuxPolicyMicrodroid() {
+         PLOG(FATAL) << "Failed to read policy file: " << kMicrodroidPrecompiledSepolicy;
+     }
+ 
+-    LoadSelinuxPolicy(policy);
++    return LoadSelinuxPolicy(policy);
+ }
+ 
+ // The SELinux setup process is carefully orchestrated around snapuserd. Policy
+@@ -682,7 +686,7 @@ void LoadSelinuxPolicyMicrodroid() {
+ //  (5) Re-launch snapuserd and attach it to the dm-user devices from step (2).
+ //
+ // After this sequence, it is safe to enable enforcing mode and continue booting.
+-void LoadSelinuxPolicyAndroid() {
++bool LoadSelinuxPolicyAndroid() {
+     MountMissingSystemPartitions();
+ 
+     LOG(INFO) << "Opening SELinux policy";
+@@ -698,13 +702,14 @@ void LoadSelinuxPolicyAndroid() {
+         snapuserd_helper->StartTransition();
+     }
+ 
+-    LoadSelinuxPolicy(policy);
++    bool loaded = LoadSelinuxPolicy(policy);
+ 
+     if (snapuserd_helper) {
+         // Before enforcing, finish the pending snapuserd transition.
+         snapuserd_helper->FinishTransition();
+         snapuserd_helper = nullptr;
+     }
++    return loaded;
+ }
+ 
+ #ifdef ALLOW_REMOUNT_OVERLAYS
+@@ -793,13 +798,12 @@ int SetupSelinux(char** argv) {
+     bool use_overlays = EarlySetupOverlays();
+ 
+     // TODO(b/287206497): refactor into different headers to only include what we need.
+-    if (IsMicrodroid()) {
+-        LoadSelinuxPolicyMicrodroid();
+-    } else {
+-        LoadSelinuxPolicyAndroid();
+-    }
++    bool policy_loaded = IsMicrodroid() ? LoadSelinuxPolicyMicrodroid() : LoadSelinuxPolicyAndroid();
++    g_selinux_policy_loaded = policy_loaded;
+ 
+-    SelinuxSetEnforcement();
++    if (policy_loaded) {
++        SelinuxSetEnforcement();
++    }
+ 
+     if (IsMicrodroid() && android::virtualization::IsOpenDiceChangesFlagEnabled()) {
+         // We run restorecon of /microdroid_resources while we are still in kernel context to avoid
+@@ -814,7 +818,7 @@ int SetupSelinux(char** argv) {
+     // store SELabels in their xattrs, such as ext4 do not need an explicit restorecon here,
+     // but other file systems do.  In particular, this is needed for ramdisks such as the
+     // recovery image for A/B devices.
+-    if (selinux_android_restorecon("/system/bin/init", 0) == -1) {
++    if (policy_loaded && selinux_android_restorecon("/system/bin/init", 0) == -1) {
+         PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
+     }
+ 
+@@ -835,5 +839,9 @@ int SetupSelinux(char** argv) {
+     return 1;
+ }
+ 
++bool SelinuxPolicyLoaded() {
++    return g_selinux_policy_loaded;
++}
++
+ }  // namespace init
+ }  // namespace android
+diff --git a/init/selinux.h b/init/selinux.h
+index 1a41bfd..26de807 100644
+--- a/init/selinux.h
++++ b/init/selinux.h
+@@ -22,6 +22,9 @@ namespace init {
+ // Initialize SELinux, then exec init to run in the init SELinux context.
+ int SetupSelinux(char** argv);
+ 
++// Returns true if the boot is proceeding without a loaded SELinux policy.
++bool SelinuxPolicyLoaded();
++
+ // Restore the proper security context to files and directories on ramdisk, and
+ // those that were created before initial sepolicy load.
+ // This must happen before /dev is populated by ueventd.
+diff --git a/libprocessgroup/profiles/cgroups_28.json b/libprocessgroup/profiles/cgroups_28.json
+index 17d4929..80a074b 100644
+--- a/libprocessgroup/profiles/cgroups_28.json
++++ b/libprocessgroup/profiles/cgroups_28.json
+@@ -5,7 +5,8 @@
+       "Path": "/dev/stune",
+       "Mode": "0755",
+       "UID": "system",
+-      "GID": "system"
++      "GID": "system",
++      "Optional": true
+     }
+   ]
+ }
+diff --git a/libprocessgroup/profiles/cgroups_29.json b/libprocessgroup/profiles/cgroups_29.json
+index 17d4929..80a074b 100644
+--- a/libprocessgroup/profiles/cgroups_29.json
++++ b/libprocessgroup/profiles/cgroups_29.json
+@@ -5,7 +5,8 @@
+       "Path": "/dev/stune",
+       "Mode": "0755",
+       "UID": "system",
+-      "GID": "system"
++      "GID": "system",
++      "Optional": true
+     }
+   ]
+ }
+diff --git a/libprocessgroup/setup/cgroup_map_write.cpp b/libprocessgroup/setup/cgroup_map_write.cpp
+index 899b4e9..31995e2 100644
+--- a/libprocessgroup/setup/cgroup_map_write.cpp
++++ b/libprocessgroup/setup/cgroup_map_write.cpp
+@@ -197,7 +197,7 @@ static bool MountV1CgroupController(const CgroupDescriptor& descriptor) {
+         //                                       /dev/cpuset/cpuset.cpus.
+         // cpuset_v2_mode is required to restore the original cpu mask after a cpu is offlined, and
+         // then onlined in cgroup v1.
+-        options += ",noprefix,cpuset_v2_mode";
++        options += ",noprefix";
+     }
+ 
+     if (mount("none", controller->path(), "cgroup", MS_NODEV | MS_NOEXEC | MS_NOSUID,
 diff --git a/rootdir/init.rc b/rootdir/init.rc
-index 0cc129707..98230e801 100644
+index 92dcdd0..a516f2b 100644
 --- a/rootdir/init.rc
 +++ b/rootdir/init.rc
-@@ -704,7 +704,8 @@ on post-fs-data
-     # We restorecon /data in case the userdata partition has been reset.
-     restorecon /data
+@@ -649,6 +649,9 @@ on post-fs
+     mkdir /cache/lost+found 0770 root root
  
--    # Make sure we have the device encryption key.
-+    # FBE requires vold to create /data/unencrypted/ref and mode before init
-+    # creates encrypted /data subdirectories below.
-     installkey /data
+     restorecon_recursive /metadata
++    # Bring-up: older boots can leave /metadata/aconfig with stale xattrs while
++    # the global restorecon skips by sehash. Force the Android 16 aconfig label.
++    restorecon --force --recursive /metadata/aconfig
+     mkdir /metadata/vold
+     chmod 0700 /metadata/vold
+     mkdir /metadata/password_slots 0771 root system
+@@ -664,11 +667,9 @@ on post-fs
+     mkdir /metadata/apex/images 0700 root system
+     mkdir /metadata/apex/config 0700 root system
+     # On some devices we see a weird behaviour in which /metadata/apex doesn't
+-    # have a correct label. To workaround this bug, explicitly call restorecon
+-    # on /metadata/apex. For most of the boot sequences /metadata/apex will
+-    # already have a correct selinux label, meaning that this call will be a
+-    # no-op.
+-    restorecon_recursive /metadata/apex
++    # have a correct label. Force the recursive restore here so stale sehash
++    # state from earlier bring-up boots cannot leave child dirs unlabeled.
++    restorecon --force --recursive /metadata/apex
  
-     # Start bootcharting as soon as possible after the data partition is
-@@ -1126,7 +1127,11 @@ on property:vold.checkpoint_committed=1
- # stuff) and we absolutely want to be before netd and the system boot slot is
- # considered to have booted successfully.
- on load-bpf-programs
--    exec_start bpfloader
-+    # SM-P205/wisdom is temporarily booting LOS 22.2 with a legacy 4.4
-+    # prebuilt kernel, where Android 15 mainline netbpfload cannot succeed.
-+    # Skip it for minimal boot bring-up and unblock netd's BPF readiness wait.
-+    setprop bpf.progs_loaded 1
-+    # exec_start bpfloader
+     mkdir /metadata/staged-install 0770 root system
  
- on bpf-progs-loaded
-     start netd
+@@ -734,6 +735,7 @@ on post-fs-data
+     mkdir /data/tombstones 0775 system system encryption=Require
+     mkdir /data/vendor/tombstones 0771 root root
+     mkdir /data/vendor/tombstones/wifi 0771 wifi wifi
++    restorecon --force /data/anr /data/tombstones /data/vendor/tombstones
+     start tombstoned
+ 
+     # Make sure that apexd is started in the default namespace
+@@ -791,6 +793,7 @@ on post-fs-data
+     mkdir /data/apex/images 0755 root system
+     mkdir /data/app-staging 0751 system system encryption=DeleteIfNecessary
+     mkdir /data/apex/ota_reserved 0700 root system encryption=Require
++    restorecon --force --recursive /data/apex
+     setprop apexd.status ""
+     restart apexd
+ 
+@@ -859,6 +862,10 @@ on post-fs-data
+     mkdir /data/misc/profiles 0771 system system
+     mkdir /data/misc/profiles/cur 0771 system system
+     mkdir /data/misc/profiles/ref 0771 system system
++    # Bring-up: stale user profile dirs can survive as unlabeled and break
++    # vold_prepare_subdirs before PackageManager can repair app data.
++    rmdir /data/misc/profiles/cur/0
++    restorecon --force --recursive /data/misc/profiles
+     mkdir /data/misc/profman 0770 system shell
+     mkdir /data/misc/gcov 0770 root root
+     mkdir /data/misc/installd 0700 root root
+@@ -1063,10 +1070,15 @@ on post-fs-data
+ 
+     # TODO(b/400439023): Remove once attest modules flagging is removed.
+     wait_for_prop apexd.status activated
++    # Bring-up: parse updateable APEX rc and expose USB ADB before KeyMint
++    # module-hash waits or later post-fs-data work can stall.
++    perform_apex_config
++    start adbd
++    setprop sys.usb.config none
++    setprop sys.usb.config adb
+     # Wait for KeyMints to receive APEX module info before starting code from updateable APEXes.
+     # This is to prevent APEX modules from interfering in module measurement.
+     wait_for_prop keystore.module_hash.sent true
+-    perform_apex_config
+ 
+     start system_aconfigd_socket_service
+     exec_start mainline_aconfigd_init
+@@ -1077,6 +1089,10 @@ on post-fs-data
+ 
+     exec_start derive_sdk
+ 
++    # Bring-up: vold's init_user0 bind-mounts require labeled DE/CE roots.
++    # Keep the later full restorecon as the normal upgrade/policy sweep.
++    restorecon --force --recursive --skip-ce /data
++
+     init_user0
+ 
+     # Set SELinux security contexts on upgrade or policy update.

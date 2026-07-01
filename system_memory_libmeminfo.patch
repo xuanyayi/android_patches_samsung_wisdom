@@ -1,5 +1,5 @@
 diff --git a/sysmeminfo.cpp b/sysmeminfo.cpp
-index f64becc..339c912 100644
+index 767335f..e961100 100644
 --- a/sysmeminfo.cpp
 +++ b/sysmeminfo.cpp
 @@ -17,6 +17,7 @@
@@ -10,7 +10,7 @@ index f64becc..339c912 100644
  #include <inttypes.h>
  #include <stdio.h>
  #include <stdlib.h>
-@@ -50,6 +51,13 @@
+@@ -51,6 +52,13 @@
  namespace android {
  namespace meminfo {
  
@@ -24,7 +24,7 @@ index f64becc..339c912 100644
  bool SysMemInfo::ReadMemInfo(const char* path) {
      return ReadMemInfo(path, SysMemInfo::kDefaultSysMemInfoTags.size(),
                         &*SysMemInfo::kDefaultSysMemInfoTags.begin(),
-@@ -379,13 +387,15 @@ bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t
+@@ -384,13 +392,15 @@ bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t
  #if defined(__ANDROID__) && !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
      static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpuMem_gpu_mem_total_map";
  
@@ -44,7 +44,7 @@ index f64becc..339c912 100644
      if (!out) {
          LOG(ERROR) << "ReadPerProcessGpuMem: out param is null";
          return false;
-@@ -433,13 +443,15 @@ bool ReadProcessGpuUsageKb([[maybe_unused]] uint32_t pid, [[maybe_unused]] uint3
+@@ -438,13 +448,15 @@ bool ReadProcessGpuUsageKb([[maybe_unused]] uint32_t pid, [[maybe_unused]] uint3
      // BPF Key [32-bits GPU ID | 32-bits PID]
      uint64_t kBpfKeyGpuUsage = ((uint64_t)gpu_id << 32) | pid;
  

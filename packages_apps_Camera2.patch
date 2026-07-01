@@ -1,5 +1,5 @@
 diff --git a/src/com/android/camera/CaptureModule.java b/src/com/android/camera/CaptureModule.java
-index 32417f60e..387cfdbf3 100644
+index 32417f6..387cfdb 100644
 --- a/src/com/android/camera/CaptureModule.java
 +++ b/src/com/android/camera/CaptureModule.java
 @@ -88,6 +88,7 @@ import com.android.camera.util.CameraUtil;

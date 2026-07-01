@@ -1,5 +1,5 @@
 diff --git a/server/BandwidthController.cpp b/server/BandwidthController.cpp
-index 8a967387..0f140854 100644
+index 8a96738..477972d 100644
 --- a/server/BandwidthController.cpp
 +++ b/server/BandwidthController.cpp
 @@ -36,6 +36,7 @@
@@ -10,25 +10,44 @@ index 8a967387..0f140854 100644
  
  #include <linux/netlink.h>
  #include <linux/rtnetlink.h>
-@@ -169,6 +170,11 @@ static const std::vector<std::string> IPT_FLUSH_COMMANDS = {
+@@ -43,6 +44,7 @@
+ 
+ #include "android-base/stringprintf.h"
+ #include "android-base/strings.h"
++#include "android-base/properties.h"
+ #define LOG_TAG "BandwidthController"
+ #include <cutils/properties.h>
+ #include <log/log.h>
+@@ -169,6 +171,22 @@ static const std::vector<std::string> IPT_FLUSH_COMMANDS = {
  
  static const uint32_t uidBillingMask = Fwmark::getUidBillingMask();
  
-+static bool legacyKernelWithoutBpffs() {
-+    errno = 0;
-+    return access("/sys/fs/bpf", F_OK) != 0 && errno == ENOENT;
++static bool isWisdomLegacyKernelCompat() {
++    return android::base::GetProperty("ro.boot.hardware", "") == "exynos7904" ||
++           android::base::GetProperty("ro.hardware", "") == "exynos7904" ||
++           android::base::GetProperty("ro.product.device", "") == "wisdom" ||
++           android::base::GetProperty("ro.product.device", "") == "p205" ||
++           android::base::GetProperty("ro.lineage.device", "") == "wisdom";
++}
++
++static bool legacyKernelWithoutNetdBpf() {
++    return isWisdomLegacyKernelCompat() &&
++           (access(XT_BPF_INGRESS_PROG_PATH, F_OK) != 0 ||
++            access(XT_BPF_EGRESS_PROG_PATH, F_OK) != 0 ||
++            access(XT_BPF_ALLOWLIST_PROG_PATH, F_OK) != 0 ||
++            access(XT_BPF_DENYLIST_PROG_PATH, F_OK) != 0);
 +}
 +
  /**
   * Basic commands for creation of hooks into data accounting and data boxes.
   *
-@@ -201,6 +207,38 @@ static const uint32_t uidBillingMask = Fwmark::getUidBillingMask();
+@@ -201,6 +219,38 @@ static const uint32_t uidBillingMask = Fwmark::getUidBillingMask();
   */
  
  std::vector<std::string> getBasicAccountingCommands() {
-+    if (legacyKernelWithoutBpffs()) {
++    if (legacyKernelWithoutNetdBpf()) {
 +        // SM-P205/wisdom is brought up with a legacy 4.4 kernel that has no
-+        // bpffs/xt_bpf object-pinned support. Keep netd alive with the
++        // complete netd BPF program set. Keep netd alive with the
 +        // non-BPF bandwidth chains; detailed UID accounting remains disabled.
 +        return {
 +                "*filter",
@@ -62,10 +81,10 @@ index 8a967387..0f140854 100644
      std::vector<std::string> ipt_basic_accounting_commands = {
              "*filter",
 diff --git a/server/Controllers.cpp b/server/Controllers.cpp
-index ea348973..2ec56633 100644
+index 48d0c50..39d01a2 100644
 --- a/server/Controllers.cpp
 +++ b/server/Controllers.cpp
-@@ -15,9 +15,11 @@
+@@ -15,12 +15,15 @@
   */
  
  #include <cinttypes>
@@ -77,19 +96,31 @@ index ea348973..2ec56633 100644
  
  #include <android-base/stringprintf.h>
  #include <android-base/strings.h>
-@@ -53,6 +55,11 @@ namespace {
++#include <android-base/properties.h>
+ #include <netdutils/Stopwatch.h>
+ 
+ #define LOG_TAG "Netd"
+@@ -53,6 +56,19 @@ namespace {
  static constexpr char CONNMARK_MANGLE_INPUT[] = "connmark_mangle_INPUT";
  static constexpr char CONNMARK_MANGLE_OUTPUT[] = "connmark_mangle_OUTPUT";
  
-+static bool legacyKernelWithoutBpffs() {
-+    errno = 0;
-+    return access("/sys/fs/bpf", F_OK) != 0 && errno == ENOENT;
++static bool isWisdomLegacyKernelCompat() {
++    return android::base::GetProperty("ro.boot.hardware", "") == "exynos7904" ||
++           android::base::GetProperty("ro.hardware", "") == "exynos7904" ||
++           android::base::GetProperty("ro.product.device", "") == "wisdom" ||
++           android::base::GetProperty("ro.product.device", "") == "p205" ||
++           android::base::GetProperty("ro.lineage.device", "") == "wisdom";
++}
++
++static bool legacyKernelWithoutNetdBpf() {
++    return isWisdomLegacyKernelCompat() &&
++           access("/sys/fs/bpf/netd_shared/prog_netd_skfilter_ingress_xtbpf", F_OK) != 0;
 +}
 +
  /**
   * List of module chains to be created, along with explicit ordering. ORDERING
   * IS CRITICAL, AND SHOULD BE TRIPLE-CHECKED WITH EACH CHANGE.
-@@ -320,12 +327,16 @@ void Controllers::init() {
+@@ -321,12 +337,16 @@ void Controllers::init() {
  
      if (int ret = bandwidthCtrl.enableBandwidthControl()) {
          gLog.error("Failed to initialize BandwidthController (%s)", strerror(-ret));
@@ -99,7 +130,7 @@ index ea348973..2ec56633 100644
 -        // to bootup we will trigger rollback and thus this offers us protection against
 -        // a mainline update breaking things.
 -        exit(1);
-+        if (legacyKernelWithoutBpffs()) {
++        if (legacyKernelWithoutNetdBpf()) {
 +            gLog.warn("Continuing without BandwidthController BPF rules on legacy kernel");
 +        } else {
 +            // A failure to init almost definitely means that iptables failed to load

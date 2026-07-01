@@ -1,5 +1,5 @@
 diff --git a/media/libstagefright/ACodec.cpp b/media/libstagefright/ACodec.cpp
-index e06efac6df..6cfc508ded 100644
+index 2822123..67bb2f5 100644
 --- a/media/libstagefright/ACodec.cpp
 +++ b/media/libstagefright/ACodec.cpp
 @@ -1784,6 +1784,14 @@ status_t ACodec::setComponentRole(
@@ -17,7 +17,7 @@ index e06efac6df..6cfc508ded 100644
      }
      return err;
  }
-@@ -9216,9 +9224,18 @@ status_t ACodec::queryCapabilities(
+@@ -9226,9 +9234,18 @@ status_t ACodec::queryCapabilities(
  
      err = SetComponentRole(omxNode, role);
      if (err != OK) {
@@ -40,7 +40,7 @@ index e06efac6df..6cfc508ded 100644
  
      bool isVideo = strncasecmp(mime, "video/", 6) == 0;
 diff --git a/media/libstagefright/OmxInfoBuilder.cpp b/media/libstagefright/OmxInfoBuilder.cpp
-index 1cb8f14fd5..7ee0701cd0 100644
+index 1cb8f14..7ee0701 100644
 --- a/media/libstagefright/OmxInfoBuilder.cpp
 +++ b/media/libstagefright/OmxInfoBuilder.cpp
 @@ -58,6 +58,33 @@ bool hasPrefix(const hidl_string& s, const char* prefix) {
@@ -111,7 +111,7 @@ index 1cb8f14fd5..7ee0701cd0 100644
      }
      return OK;
 diff --git a/media/mtp/MtpDevHandle.cpp b/media/mtp/MtpDevHandle.cpp
-index e8bdf806ee..9c61bcb0ff 100644
+index e8bdf80..9c61bcb 100644
 --- a/media/mtp/MtpDevHandle.cpp
 +++ b/media/mtp/MtpDevHandle.cpp
 @@ -16,6 +16,7 @@
@@ -337,7 +337,7 @@ index e8bdf806ee..9c61bcb0ff 100644
  }
  
 diff --git a/media/mtp/MtpDevHandle.h b/media/mtp/MtpDevHandle.h
-index 740ac857fe..1d39ec7ffb 100644
+index 740ac85..1d39ec7 100644
 --- a/media/mtp/MtpDevHandle.h
 +++ b/media/mtp/MtpDevHandle.h
 @@ -25,6 +25,8 @@ namespace android {
@@ -350,7 +350,7 @@ index 740ac857fe..1d39ec7ffb 100644
  public:
      MtpDevHandle();
 diff --git a/media/mtp/MtpServer.cpp b/media/mtp/MtpServer.cpp
-index 80fe51abce..1c4df91e83 100644
+index 6f4f797..1f3e43d 100644
 --- a/media/mtp/MtpServer.cpp
 +++ b/media/mtp/MtpServer.cpp
 @@ -28,6 +28,7 @@

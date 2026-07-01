@@ -1,8 +1,8 @@
 diff --git a/core/java/android/view/ViewRootImpl.java b/core/java/android/view/ViewRootImpl.java
-index c1b92ee3f74e..7a5db373915e 100644
+index fa1c190eb..f40d1e858 100644
 --- a/core/java/android/view/ViewRootImpl.java
 +++ b/core/java/android/view/ViewRootImpl.java
-@@ -8268,6 +8268,9 @@ public final class ViewRootImpl implements ViewParent,
+@@ -8506,6 +8506,9 @@ public final class ViewRootImpl implements ViewParent,
          if (pointerIcon == null) {
              pointerIcon = mView.onResolvePointerIcon(event, pointerIndex);
          }
@@ -145,7 +145,7 @@ zv-Ygkg1?963q6-U@N{kRg*<(@BSP3sS`NoE{k*0i9M5p}OUcWhw`Wglb$+v5?DDoR
 oAu_vXf7^S*J7MXRs_k}+a%Oc?_dIi+1Pn6<Pgg&ebxsLQ0D7*IPyhe`
 
 diff --git a/core/res/res/drawable/pointer_crosshair_vector_icon.xml b/core/res/res/drawable/pointer_crosshair_vector_icon.xml
-index d938514d2877..3b96a8ad3ace 100644
+index d938514d2..3b96a8ad3 100644
 --- a/core/res/res/drawable/pointer_crosshair_vector_icon.xml
 +++ b/core/res/res/drawable/pointer_crosshair_vector_icon.xml
 @@ -1,5 +1,5 @@
@@ -156,7 +156,7 @@ index d938514d2877..3b96a8ad3ace 100644
      android:hotSpotX="12dp"
      android:hotSpotY="12dp" />
 diff --git a/media/jni/android_mtp_MtpServer.cpp b/media/jni/android_mtp_MtpServer.cpp
-index b4844f79b540..78e1f08eb54f 100644
+index b4844f79b..78e1f08eb 100644
 --- a/media/jni/android_mtp_MtpServer.cpp
 +++ b/media/jni/android_mtp_MtpServer.cpp
 @@ -88,7 +88,7 @@ android_mtp_MtpServer_setup(JNIEnv *env, jobject thiz, jobject javaDatabase, job
@@ -168,11 +168,187 @@ index b4844f79b540..78e1f08eb54f 100644
      MtpServer* server = new MtpServer(getMtpDatabase(env, javaDatabase), controlFd,
              usePtp,
              (deviceInfoManufacturerStr != NULL) ? deviceInfoManufacturerStr : "",
+diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
+index e0bc1ec0e..6138f7a28 100644
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -467,6 +467,9 @@
+      vibrator is capable of subtle vibrations -->
+     <bool name="config_vibrateOnIconAnimation">false</bool>
+ 
++    <!-- Whether brightness sliders should use dynamic haptic feedback while dragging. -->
++    <bool name="config_enableBrightnessSliderHaptics">true</bool>
++
+     <!-- Notifications are sized to match the width of two (of 4) qs tiles in landscape. -->
+     <bool name="config_skinnyNotifsInLandscape">true</bool>
+ 
+diff --git a/packages/SystemUI/src/com/android/keyguard/PinShapeNonHintingView.java b/packages/SystemUI/src/com/android/keyguard/PinShapeNonHintingView.java
+index 3c9ef591c..1697b8194 100644
+--- a/packages/SystemUI/src/com/android/keyguard/PinShapeNonHintingView.java
++++ b/packages/SystemUI/src/com/android/keyguard/PinShapeNonHintingView.java
+@@ -56,7 +56,6 @@ public class PinShapeNonHintingView extends LinearLayout implements PinShapeInpu
+     private boolean mIsAnimatingReset = false;
+     private int mDelayedAppend = 0;
+     private final PinShapeAdapter mPinShapeAdapter;
+-    private ValueAnimator mValueAnimator = ValueAnimator.ofFloat(1f, 0f);
+     private Rect mFirstChildVisibleRect = new Rect();
+     public PinShapeNonHintingView(Context context, AttributeSet attrs) {
+         super(context, attrs);
+@@ -119,17 +118,15 @@ public class PinShapeNonHintingView extends LinearLayout implements PinShapeInpu
+             Log.e(getClass().getName(), "Trying to delete a non-existent char");
+             return;
+         }
+-        if (mValueAnimator.isRunning()) {
+-            mValueAnimator.end();
+-        }
+         mPosition--;
+         ImageView pinDot = (ImageView) getChildAt(mPosition);
+-        mValueAnimator.addUpdateListener(valueAnimator -> {
++        ValueAnimator valueAnimator = ValueAnimator.ofFloat(1f, 0f);
++        valueAnimator.addUpdateListener(animator -> {
+             float value = (float) valueAnimator.getAnimatedValue();
+             pinDot.setScaleX(value);
+             pinDot.setScaleY(value);
+         });
+-        mValueAnimator.addListener(new AnimatorListenerAdapter() {
++        valueAnimator.addListener(new AnimatorListenerAdapter() {
+             @Override
+             public void onAnimationEnd(Animator animation) {
+                 super.onAnimationEnd(animation);
+@@ -139,8 +136,8 @@ public class PinShapeNonHintingView extends LinearLayout implements PinShapeInpu
+                 removeView(pinDot);
+             }
+         });
+-        mValueAnimator.setDuration(PasswordTextView.DISAPPEAR_DURATION);
+-        mValueAnimator.start();
++        valueAnimator.setDuration(PasswordTextView.DISAPPEAR_DURATION);
++        valueAnimator.start();
+     }
+ 
+     @Override
+@@ -227,7 +224,6 @@ public class PinShapeNonHintingView extends LinearLayout implements PinShapeInpu
+                         startRect.bottom
+                 );
+             });
+-            animator.start();
+             return animator;
+         }
+     }
+diff --git a/packages/SystemUI/src/com/android/systemui/brightness/ui/compose/BrightnessSlider.kt b/packages/SystemUI/src/com/android/systemui/brightness/ui/compose/BrightnessSlider.kt
+index 9ee47cf16..085f34b9a 100644
+--- a/packages/SystemUI/src/com/android/systemui/brightness/ui/compose/BrightnessSlider.kt
++++ b/packages/SystemUI/src/com/android/systemui/brightness/ui/compose/BrightnessSlider.kt
+@@ -157,6 +157,9 @@ fun BrightnessSlider(
+     val isRestricted = restriction is PolicyRestriction.Restricted
+     val enabled = !isRestricted
+     val contentDescription = stringResource(R.string.accessibility_brightness)
++    val enableHaptics = LocalContext.current.resources.getBoolean(
++        R.bool.config_enableBrightnessSliderHaptics
++    )
+     val interactionSource = remember { MutableInteractionSource() }
+     val hapticsViewModel: SliderHapticsViewModel =
+         rememberViewModel(traceName = "SliderHapticsViewModel") {
+@@ -255,7 +258,9 @@ fun BrightnessSlider(
+             onValueChange = {
+                 if (enabled) {
+                     if (!overriddenByAppState) {
+-                        hapticsViewModel.onValueChange(it)
++                        if (enableHaptics) {
++                            hapticsViewModel.onValueChange(it)
++                        }
+                         value = it.toInt()
+                         onDrag(value)
+                     }
+@@ -264,7 +269,9 @@ fun BrightnessSlider(
+             onValueChangeFinished = {
+                 if (enabled) {
+                     if (!overriddenByAppState) {
+-                        hapticsViewModel.onValueChangeEnded()
++                        if (enableHaptics) {
++                            hapticsViewModel.onValueChangeEnded()
++                        }
+                         onStop(value)
+                     }
+                 }
+diff --git a/packages/SystemUI/src/com/android/systemui/settings/brightness/BrightnessSliderController.java b/packages/SystemUI/src/com/android/systemui/settings/brightness/BrightnessSliderController.java
+index 02eca74fd..e38b9c196 100644
+--- a/packages/SystemUI/src/com/android/systemui/settings/brightness/BrightnessSliderController.java
++++ b/packages/SystemUI/src/com/android/systemui/settings/brightness/BrightnessSliderController.java
+@@ -69,6 +69,7 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+     private final FalsingManager mFalsingManager;
+     private final UiEventLogger mUiEventLogger;
+ 
++    private final boolean mEnableHaptics;
+     private final HapticSliderPlugin mBrightnessSliderHapticPlugin;
+     private final ActivityStarter mActivityStarter;
+ 
+@@ -77,7 +78,9 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+     private final Gefingerpoken mOnInterceptListener = new Gefingerpoken() {
+         @Override
+         public boolean onInterceptTouchEvent(MotionEvent ev) {
+-            mBrightnessSliderHapticPlugin.onTouchEvent(ev);
++            if (mEnableHaptics) {
++                mBrightnessSliderHapticPlugin.onTouchEvent(ev);
++            }
+             int action = ev.getActionMasked();
+             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                 mFalsingManager.isFalseTouch(Classifier.BRIGHTNESS_SLIDER);
+@@ -101,6 +104,8 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+         super(brightnessSliderView);
+         mFalsingManager = falsingManager;
+         mUiEventLogger = uiEventLogger;
++        mEnableHaptics = brightnessSliderView.getResources().getBoolean(
++                R.bool.config_enableBrightnessSliderHaptics);
+         mBrightnessSliderHapticPlugin = brightnessSliderHapticPlugin;
+         mActivityStarter = activityStarter;
+         mBrightnessWarningToast = brightnessWarningToast;
+@@ -252,7 +257,7 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+     protected void handleSliderProgressChange(SeekBar seekBar, int progress, boolean fromUser) {
+         if (mListener != null) {
+             mListener.onChanged(mTracking, progress, false);
+-            if (fromUser) {
++            if (fromUser && mEnableHaptics) {
+                 mBrightnessSliderHapticPlugin.onProgressChanged(progress, true);
+             }
+         }
+@@ -271,7 +276,9 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+             mUiEventLogger.log(BrightnessSliderEvent.BRIGHTNESS_SLIDER_STARTED_TRACKING_TOUCH);
+             if (mListener != null) {
+                 mListener.onChanged(mTracking, getValue(), false);
+-                mBrightnessSliderHapticPlugin.onStartTrackingTouch();
++                if (mEnableHaptics) {
++                    mBrightnessSliderHapticPlugin.onStartTrackingTouch();
++                }
+             }
+ 
+             if (mMirrorController != null) {
+@@ -286,7 +293,9 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+             mUiEventLogger.log(BrightnessSliderEvent.BRIGHTNESS_SLIDER_STOPPED_TRACKING_TOUCH);
+             if (mListener != null) {
+                 mListener.onChanged(mTracking, getValue(), true);
+-                mBrightnessSliderHapticPlugin.onStopTrackingTouch();
++                if (mEnableHaptics) {
++                    mBrightnessSliderHapticPlugin.onStopTrackingTouch();
++                }
+             }
+ 
+             if (mMirrorController != null) {
+@@ -357,7 +366,9 @@ public class BrightnessSliderController extends ViewController<BrightnessSliderV
+                     mMSDLPlayer,
+                     mSystemClock,
+                     new HapticSlider.SeekBar(root.requireViewById(R.id.slider)));
+-            HapticSliderViewBinder.bind(viewRoot, plugin);
++            if (root.getResources().getBoolean(R.bool.config_enableBrightnessSliderHaptics)) {
++                HapticSliderViewBinder.bind(viewRoot, plugin);
++            }
+             return new BrightnessSliderController(root, mFalsingManager, mUiEventLogger, plugin,
+                     mActivityStarter, mBrightnessWarningToast);
+         }
 diff --git a/services/usb/java/com/android/server/usb/UsbDeviceManager.java b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
-index 1f3ce01cad4a..8df1a6ecf4ba 100644
+index 9a2183128..a90689029 100644
 --- a/services/usb/java/com/android/server/usb/UsbDeviceManager.java
 +++ b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
-@@ -2721,6 +2721,10 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
+@@ -2816,6 +2816,10 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
          if (DEBUG) {
              Slog.d(TAG, "setCurrentFunctions(" + UsbManager.usbFunctionsToString(functions) + ")");
          }

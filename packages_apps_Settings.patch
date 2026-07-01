@@ -1,0 +1,298 @@
+diff --git a/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java b/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java
+index 16e72db..67ccba5 100644
+--- a/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java
++++ b/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java
+@@ -20,6 +20,7 @@ import static android.os.UserHandle.USER_CURRENT;
+ 
+ import android.content.Context;
+ import android.content.om.IOverlayManager;
++import android.content.om.OverlayInfo;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
+ 
+@@ -49,6 +50,11 @@ public class TransparentNavigationBarPreferenceController
+                 ServiceManager.getService(Context.OVERLAY_SERVICE));
+     }
+ 
++    @Override
++    public boolean isAvailable() {
++        return getOverlayInfo() != null;
++    }
++
+     @Override
+     public String getPreferenceKey() {
+         return TRANSPARENT_NAVIGATION_BAR_KEY;
+@@ -56,8 +62,15 @@ public class TransparentNavigationBarPreferenceController
+ 
+     @Override
+     public boolean onPreferenceChange(Preference preference, Object newValue) {
+-        setEnabled((boolean) newValue);
+-        return true;
++        if (!isAvailable()) {
++            return false;
++        }
++        try {
++            setEnabled((boolean) newValue);
++            return true;
++        } catch (IllegalArgumentException e) {
++            return false;
++        }
+     }
+ 
+     @Override
+@@ -70,7 +83,7 @@ public class TransparentNavigationBarPreferenceController
+         super.onDeveloperOptionsSwitchDisabled();
+         ((TwoStatePreference) mPreference).setChecked(false);
+         final boolean enabled = isEnabled();
+-        if (!enabled) {
++        if (isAvailable() && !enabled) {
+             setEnabled(false);
+         }
+     }
+@@ -88,4 +101,16 @@ public class TransparentNavigationBarPreferenceController
+             throw e.rethrowFromSystemServer();
+         }
+     }
++
++    @VisibleForTesting
++    protected OverlayInfo getOverlayInfo() {
++        if (mOverlayManager == null) {
++            return null;
++        }
++        try {
++            return mOverlayManager.getOverlayInfo(OVERLAY_PACKAGE_NAME, USER_CURRENT);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
+ }
+diff --git a/src/com/android/settings/users/UserSettings.java b/src/com/android/settings/users/UserSettings.java
+index d1186a5..b713acc 100644
+--- a/src/com/android/settings/users/UserSettings.java
++++ b/src/com/android/settings/users/UserSettings.java
+@@ -153,6 +153,8 @@ public class UserSettings extends SettingsPreferenceFragment
+ 
+     private static final String SETTING_GUEST_HAS_LOGGED_IN = "systemui.guest_has_logged_in";
+ 
++    private static final int FALLBACK_USER_ICON_SIZE_PX = 48;
++
+     private static final int MENU_REMOVE_USER = Menu.FIRST;
+ 
+     private static final IntentFilter USER_REMOVED_INTENT_FILTER;
+@@ -974,7 +976,7 @@ public class UserSettings extends SettingsPreferenceFragment
+                 (newUserName, newUserIcon) -> {
+                     if (newUserIcon != userIcon) {
+                         ThreadUtils.postOnBackgroundThread(() ->
+-                                mUserManager.setUserIcon(user.id,
++                                setUserIconSafely(mUserManager, user.id,
+                                         UserIcons.convertToBitmapAtUserIconSize(
+                                                 activity.getResources(), newUserIcon)));
+                         mMePreference.setIcon(newUserIcon);
+@@ -1150,7 +1152,7 @@ public class UserSettings extends SettingsPreferenceFragment
+                 Future<?> unusedSettingIconFuture = ThreadUtils.postOnBackgroundThread(() -> {
+                     if (mPendingUserIconPath != null) {
+                         Bitmap bitmap = BitmapFactory.decodeFile(mPendingUserIconPath);
+-                        mUserManager.setUserIcon(user.id, bitmap);
++                        setUserIconSafely(mUserManager, user.id, bitmap);
+                         new File(mPendingUserIconPath).delete();
+                         mPendingUserIconPath = null;
+                     } else {
+@@ -1158,8 +1160,8 @@ public class UserSettings extends SettingsPreferenceFragment
+                         if (newUserIcon == null) {
+                             newUserIcon = UserIcons.getDefaultUserIcon(resources, user.id, false);
+                         }
+-                        mUserManager.setUserIcon(user.id, UserIcons.convertToBitmapAtUserIconSize(
+-                                resources, newUserIcon));
++                        setUserIconSafely(mUserManager, user.id,
++                                UserIcons.convertToBitmapAtUserIconSize(resources, newUserIcon));
+                     }
+                 });
+ 
+@@ -1889,9 +1891,37 @@ public class UserSettings extends SettingsPreferenceFragment
+         }
+         UserManager um = (UserManager) context.getSystemService(Context.USER_SERVICE);
+         Bitmap bitmap = getDefaultUserIconAsBitmap(context.getResources(), userId);
+-        um.setUserIcon(userId, bitmap);
++        return setUserIconSafely(um, userId, bitmap);
++    }
++
++    @VisibleForTesting
++    static boolean setUserIconSafely(UserManager userManager, int userId, Bitmap bitmap) {
++        if (userManager == null || bitmap == null) {
++            return false;
++        }
++        if (trySetUserIcon(userManager, userId, bitmap)) {
++            return true;
++        }
++        if (bitmap.getWidth() <= FALLBACK_USER_ICON_SIZE_PX
++                && bitmap.getHeight() <= FALLBACK_USER_ICON_SIZE_PX) {
++            return false;
++        }
++        Bitmap fallback = Bitmap.createScaledBitmap(bitmap, FALLBACK_USER_ICON_SIZE_PX,
++                FALLBACK_USER_ICON_SIZE_PX, true);
++        if (trySetUserIcon(userManager, userId, fallback)) {
++            return true;
++        }
++        return false;
++    }
+ 
+-        return true;
++    private static boolean trySetUserIcon(UserManager userManager, int userId, Bitmap bitmap) {
++        try {
++            userManager.setUserIcon(userId, bitmap);
++            return true;
++        } catch (RuntimeException e) {
++            Log.w(TAG, "Unable to set user icon for user " + userId, e);
++            return false;
++        }
+     }
+ 
+     @WorkerThread
+@@ -1914,7 +1944,7 @@ public class UserSettings extends SettingsPreferenceFragment
+         CircleFramedDrawable drawable = CircleFramedDrawable.getInstance(context, decodedIcon);
+         Bitmap icon = UserIcons.convertToBitmapAtUserIconSize(context.getResources(), drawable);
+ 
+-        um.setUserIcon(userId, icon);
++        setUserIconSafely(um, userId, icon);
+         try {
+             avatarDataStream.close();
+         } catch (IOException ioe) {
+diff --git a/tests/robotests/src/com/android/settings/development/TransparentNavigationBarPreferenceControllerTest.java b/tests/robotests/src/com/android/settings/development/TransparentNavigationBarPreferenceControllerTest.java
+index a1b3892..deba7b1 100644
+--- a/tests/robotests/src/com/android/settings/development/TransparentNavigationBarPreferenceControllerTest.java
++++ b/tests/robotests/src/com/android/settings/development/TransparentNavigationBarPreferenceControllerTest.java
+@@ -21,6 +21,8 @@ import static org.junit.Assert.assertTrue;
+ import static org.mockito.Mockito.verify;
+ import static org.mockito.Mockito.when;
+ 
++import android.content.om.OverlayInfo;
++
+ import androidx.preference.PreferenceScreen;
+ import androidx.preference.SwitchPreference;
+ 
+@@ -49,6 +51,13 @@ public class TransparentNavigationBarPreferenceControllerTest {
+                 RuntimeEnvironment.application) {
+             private boolean mEnabled;
+ 
++            protected OverlayInfo getOverlayInfo() {
++                return new OverlayInfo("com.android.internal.systemui.navbar.transparent",
++                        null /* overlayName */, "android", null /* targetOverlayableName */,
++                        null /* category */, "/system/product/overlay/TransparentNavigationBarOverlay.apk",
++                        OverlayInfo.STATE_DISABLED, 0, 0, false, false);
++            }
++
+             protected boolean isEnabled() {
+                 return mEnabled;
+             }
+@@ -99,4 +108,65 @@ public class TransparentNavigationBarPreferenceControllerTest {
+         verify(mPreference).setEnabled(false);
+         verify(mPreference).setChecked(false);
+     }
++
++    @Test
++    public void isAvailable_overlayPresent_shouldBeAvailable() {
++        mController = new TransparentNavigationBarPreferenceController(
++                RuntimeEnvironment.application) {
++            protected OverlayInfo getOverlayInfo() {
++                return new OverlayInfo("com.android.internal.systemui.navbar.transparent",
++                        null /* overlayName */, "android", null /* targetOverlayableName */,
++                        null /* category */, "/system/product/overlay/TransparentNavigationBarOverlay.apk",
++                        OverlayInfo.STATE_DISABLED, 0, 0, false, false);
++            }
++
++            protected boolean isEnabled() {
++                return false;
++            }
++
++            protected void setEnabled(boolean enabled) {
++            }
++        };
++
++        assertTrue(mController.isAvailable());
++    }
++
++    @Test
++    public void isAvailable_overlayMissing_shouldNotBeAvailable() {
++        mController = new TransparentNavigationBarPreferenceController(
++                RuntimeEnvironment.application) {
++            protected OverlayInfo getOverlayInfo() {
++                return null;
++            }
++
++            protected boolean isEnabled() {
++                return false;
++            }
++
++            protected void setEnabled(boolean enabled) {
++            }
++        };
++
++        assertFalse(mController.isAvailable());
++    }
++
++    @Test
++    public void onPreferenceChange_overlayMissing_shouldRejectChange() {
++        mController = new TransparentNavigationBarPreferenceController(
++                RuntimeEnvironment.application) {
++            protected OverlayInfo getOverlayInfo() {
++                return null;
++            }
++
++            protected boolean isEnabled() {
++                return false;
++            }
++
++            protected void setEnabled(boolean enabled) {
++                throw new AssertionError("setEnabled should not be called");
++            }
++        };
++
++        assertFalse(mController.onPreferenceChange(mPreference, true));
++    }
+ }
+diff --git a/tests/robotests/src/com/android/settings/users/UserSettingsTest.java b/tests/robotests/src/com/android/settings/users/UserSettingsTest.java
+index 180fe5d..a7c5e73 100644
+--- a/tests/robotests/src/com/android/settings/users/UserSettingsTest.java
++++ b/tests/robotests/src/com/android/settings/users/UserSettingsTest.java
+@@ -33,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
+ import static org.mockito.ArgumentMatchers.anyString;
+ import static org.mockito.ArgumentMatchers.eq;
+ import static org.mockito.ArgumentMatchers.notNull;
++import static org.mockito.Mockito.doThrow;
+ import static org.mockito.Mockito.doNothing;
+ import static org.mockito.Mockito.doReturn;
+ import static org.mockito.Mockito.mock;
+@@ -335,6 +336,33 @@ public class UserSettingsTest {
+         }
+     }
+ 
++    @Test
++    public void setUserIconSafely_setUserIconThrows_retriesWithSmallIcon() {
++        doThrow(new RuntimeException("bitmap parcel failed"))
++                .doNothing()
++                .when(mUserManager).setUserIcon(eq(ACTIVE_USER_ID), any());
++        Bitmap bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888);
++
++        assertThat(UserSettings.setUserIconSafely(mUserManager, ACTIVE_USER_ID, bitmap)).isTrue();
++
++        ArgumentCaptor<Bitmap> captor = ArgumentCaptor.forClass(Bitmap.class);
++        verify(mUserManager, times(2)).setUserIcon(eq(ACTIVE_USER_ID), captor.capture());
++        Bitmap retryBitmap = captor.getAllValues().get(1);
++        assertThat(retryBitmap.getWidth()).isEqualTo(48);
++        assertThat(retryBitmap.getHeight()).isEqualTo(48);
++    }
++
++    @Test
++    public void setUserIconSafely_retryThrows_returnsFalse() {
++        doThrow(new RuntimeException("bitmap parcel failed"))
++                .when(mUserManager).setUserIcon(eq(ACTIVE_USER_ID), any());
++        Bitmap bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888);
++
++        assertThat(UserSettings.setUserIconSafely(mUserManager, ACTIVE_USER_ID, bitmap)).isFalse();
++
++        verify(mUserManager, times(2)).setUserIcon(eq(ACTIVE_USER_ID), any());
++    }
++
+     @Test
+     public void testExitGuest_ShouldLogAction() {
+         mUserCapabilities.mIsGuest = true;

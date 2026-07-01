@@ -1,8 +1,8 @@
 diff --git a/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java b/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
-index e11368e222..5f2f86fb9a 100644
+index f9e32f0..5546098 100644
 --- a/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
 +++ b/service/java/com/android/server/wifi/SupplicantStaIfaceHalAidlImpl.java
-@@ -352,6 +352,12 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
+@@ -373,6 +373,12 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
                  handleRemoteException(e, methodStr);
              } catch (ServiceSpecificException e) {
                  handleServiceSpecificException(e, methodStr);
@@ -15,7 +15,7 @@ index e11368e222..5f2f86fb9a 100644
              } catch (NoSuchElementException | IllegalArgumentException e) {
                  Log.e(TAG, "Encountered exception at addIface: ", e);
              }
-@@ -359,6 +365,29 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
+@@ -380,6 +386,29 @@ public class SupplicantStaIfaceHalAidlImpl implements ISupplicantStaIfaceHal {
          }
      }
  

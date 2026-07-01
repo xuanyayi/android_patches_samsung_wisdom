@@ -1,0 +1,44 @@
+diff --git a/libc/bionic/system_property_api.cpp b/libc/bionic/system_property_api.cpp
+index ed30fc2..ec1598d 100644
+--- a/libc/bionic/system_property_api.cpp
++++ b/libc/bionic/system_property_api.cpp
+@@ -56,7 +56,14 @@ int __system_property_set_filename(const char*) {
+ __BIONIC_WEAK_FOR_NATIVE_BRIDGE
+ int __system_property_area_init() {
+   bool fsetxattr_fail = false;
+-  return system_properties.AreaInit(PROP_DIRNAME, &fsetxattr_fail) && !fsetxattr_fail ? 0 : -1;
++  if (!system_properties.AreaInit(PROP_DIRNAME, &fsetxattr_fail)) {
++    return -1;
++  }
++  if (fsetxattr_fail) {
++    async_safe_format_log(ANDROID_LOG_WARN, "libc",
++                          "property area SELinux labels unavailable, continuing for boot bring-up");
++  }
++  return 0;
+ }
+ 
+ __BIONIC_WEAK_FOR_NATIVE_BRIDGE
+diff --git a/libc/upstream-openbsd/android/include/arc4random.h b/libc/upstream-openbsd/android/include/arc4random.h
+index 1940398..e098401 100644
+--- a/libc/upstream-openbsd/android/include/arc4random.h
++++ b/libc/upstream-openbsd/android/include/arc4random.h
+@@ -18,6 +18,7 @@
+  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  */
+ 
++#include <errno.h>
+ #include <pthread.h>
+ #include <sys/mman.h>
+ #include <sys/prctl.h>
+@@ -59,8 +60,9 @@ static inline int _rs_allocate(struct _rs** rsp, struct _rsx** rsxp) {
+     async_safe_fatal("arc4random data allocation failed: %m");
+   }
+ 
+-  // Equivalent to OpenBSD's minherit(MAP_INHERIT_ZERO).
+-  if (madvise(p, size, MADV_WIPEONFORK) == -1) {
++  // MADV_WIPEONFORK requires Linux 4.14+. On pre-4.14 vendor kernels, the call
++  // returns EINVAL; tolerate that so these devices can still boot.
++  if (madvise(p, size, MADV_WIPEONFORK) == -1 && errno != EINVAL) {
+     async_safe_fatal("arc4random data MADV_WIPEONFORK failed: %m");
+   }
+ 

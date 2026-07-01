@@ -1,0 +1,11 @@
+diff --git a/apex/apex_manifest.json b/apex/apex_manifest.json
+index 75f40e0..9ee391a 100644
+--- a/apex/apex_manifest.json
++++ b/apex/apex_manifest.json
+@@ -1,5 +1,6 @@
+ {
+   "name": "com.android.adbd",
++  "bootstrap": true,
+ 
+   // Placeholder module version to be replaced during build.
+   // Do not change!

@@ -1,0 +1,25 @@
+diff --git a/AccessControl.cpp b/AccessControl.cpp
+index c8366ca..e148e2b 100644
+--- a/AccessControl.cpp
++++ b/AccessControl.cpp
+@@ -16,6 +16,8 @@
+ 
+ #define LOG_TAG "hwservicemanager"
+ 
++#include <errno.h>
++
+ #include <android-base/logging.h>
+ #include <hidl-util/FQName.h>
+ #include <log/log.h>
+@@ -106,6 +108,11 @@ bool AccessControl::checkPermission(const CallingContext& source, const char *ta
+ 
+     allowed = (selinux_check_access(source.sid.c_str(), targetContext, "hwservice_manager",
+                                     perm, (void *) &ad) == 0);
++    if (!allowed && errno == EINVAL) {
++        LOG(WARNING) << "SELinux hwservice_manager class unavailable during boot bring-up; "
++                     << "allowing " << perm << " for " << (interface ? interface : "(null)");
++        return true;
++    }
+ 
+     return allowed;
+ }

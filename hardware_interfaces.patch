@@ -1,5 +1,5 @@
 diff --git a/audio/core/all-versions/default/StreamOut.cpp b/audio/core/all-versions/default/StreamOut.cpp
-index 09df4ed43d..ae5141fa76 100644
+index 09df4ed..ae5141f 100644
 --- a/audio/core/all-versions/default/StreamOut.cpp
 +++ b/audio/core/all-versions/default/StreamOut.cpp
 @@ -26,6 +26,7 @@

@@ -1,72 +1,16 @@
-diff --git a/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java b/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
-index 387f791..b6bd27f 100644
---- a/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
-+++ b/doze/src/org/lineageos/settings/doze/BootCompletedReceiver.java
-@@ -19,6 +19,7 @@ package org.lineageos.settings.doze;
- import android.content.BroadcastReceiver;
- import android.content.Context;
- import android.content.Intent;
-+import android.os.SystemClock;
- import android.util.Log;
- 
- public class BootCompletedReceiver extends BroadcastReceiver {
-@@ -29,7 +30,12 @@ public class BootCompletedReceiver extends BroadcastReceiver {
-     @Override
-     public void onReceive(final Context context, Intent intent) {
-         if (DEBUG) Log.d(TAG, "Received boot completed intent");
--        Utils.checkDozeService(context);
-+        final Context appContext = context.getApplicationContext();
-+        new Thread(() -> {
-+            SystemClock.sleep(5000);
-+            Utils.syncDoubleTapToWake(appContext);
-+            Utils.checkDozeService(appContext);
-+        }, "SamsungDozeBoot").start();
-     }
- 
- }
-diff --git a/doze/src/org/lineageos/settings/doze/Utils.java b/doze/src/org/lineageos/settings/doze/Utils.java
-index f6fec2b..0a22ddf 100644
---- a/doze/src/org/lineageos/settings/doze/Utils.java
-+++ b/doze/src/org/lineageos/settings/doze/Utils.java
-@@ -19,10 +19,12 @@ package org.lineageos.settings.doze;
- 
- import static android.provider.Settings.Secure.DOZE_ALWAYS_ON;
- import static android.provider.Settings.Secure.DOZE_ENABLED;
-+import static android.provider.Settings.Secure.DOUBLE_TAP_TO_WAKE;
- 
- import android.content.Context;
- import android.content.Intent;
- import android.hardware.display.AmbientDisplayConfiguration;
-+import android.os.SystemClock;
- import android.os.UserHandle;
- import android.provider.Settings;
- import android.util.Log;
-@@ -114,4 +116,25 @@ public final class Utils {
-         return PreferenceManager.getDefaultSharedPreferences(context)
-                 .getBoolean(WAKE_ON_GESTURE_KEY, false);
-     }
-+
-+    protected static void syncDoubleTapToWake(Context context) {
-+        if (!context.getResources().getBoolean(
-+                com.android.internal.R.bool.config_supportDoubleTapWake)) {
-+            return;
-+        }
-+
-+        final int enabled = Settings.Secure.getIntForUser(context.getContentResolver(),
-+                DOUBLE_TAP_TO_WAKE, 1, UserHandle.USER_CURRENT);
-+        if (enabled != 0) {
-+            // SettingsProvider ignores same-value writes; force the Power HAL hint to replay.
-+            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 0,
-+                    UserHandle.USER_CURRENT);
-+            SystemClock.sleep(250);
-+            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 1,
-+                    UserHandle.USER_CURRENT);
-+        } else {
-+            Settings.Secure.putIntForUser(context.getContentResolver(), DOUBLE_TAP_TO_WAKE, 0,
-+                    UserHandle.USER_CURRENT);
-+        }
-+    }
- }
+diff --git a/aidl/vibrator/Android.bp b/aidl/vibrator/Android.bp
+index 9301f9d..1ad4225 100644
+--- a/aidl/vibrator/Android.bp
++++ b/aidl/vibrator/Android.bp
+@@ -9,7 +9,7 @@ cc_binary {
+     init_rc: ["android.hardware.vibrator-service.samsung.rc"],
+     vintf_fragments: ["android.hardware.vibrator-service.samsung.xml"],
+     cppflags: select(soong_config_variable("samsungVibratorVars", "duration_amplitude"), {
+-        true: ["-DVIBRATOR_SUPPORTS_DURATION_AMPLITUDE_CONTROL"],
++        "true": ["-DVIBRATOR_SUPPORTS_DURATION_AMPLITUDE_CONTROL"],
+         default: [],
+     }),
+     srcs: [
 diff --git a/interfaces/camera/provider/4.0/Android.bp b/interfaces/camera/provider/4.0/Android.bp
 new file mode 100644
 index 0000000..c1a7de2

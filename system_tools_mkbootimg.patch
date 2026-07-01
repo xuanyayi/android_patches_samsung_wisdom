@@ -1,5 +1,5 @@
 diff --git a/mkbootimg.py b/mkbootimg.py
-index dcf7265..3bf4263 100755
+index ec29581..3eec95f 100755
 --- a/mkbootimg.py
 +++ b/mkbootimg.py
 @@ -199,7 +199,7 @@ def write_header(args):
@@ -11,7 +11,7 @@ index dcf7265..3bf4263 100755
  
      args.output.write(pack(f'{BOOT_MAGIC_SIZE}s', BOOT_MAGIC.encode()))
      # kernel size in bytes
-@@ -523,6 +523,8 @@ def parse_cmdline():
+@@ -522,6 +522,8 @@ def parse_cmdline():
                          help='ramdisk offset')
      parser.add_argument('--second_offset', type=parse_int, default=0x00f00000,
                          help='second bootloader offset')
