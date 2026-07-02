@@ -40,6 +40,7 @@ case "${MODE}" in
     apply_patch hardware/interfaces hardware_interfaces.patch
     apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
     apply_patch hardware/samsung hardware_samsung.patch
+    apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
     apply_patch hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib hardware_samsung_slsi_scsc_wifibt_wpa_supplicant_lib.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch
     apply_patch packages/apps/Settings packages_apps_Settings.patch
@@ -65,6 +66,7 @@ case "${MODE}" in
     apply_patch hardware/interfaces hardware_interfaces.patch
     apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
     apply_patch hardware/samsung hardware_samsung.patch
+    apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
     apply_patch hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib hardware_samsung_slsi_scsc_wifibt_wpa_supplicant_lib.patch
     apply_patch packages/apps/Aperture packages_apps_Aperture.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch

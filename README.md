@@ -2,7 +2,7 @@
 
 Platform patches used by the Samsung wisdom / SM-P205 LineageOS 23.2 bring-up.
 The default script mode applies the current release-candidate platform patch set
-used by the 2026-07-01 tester package.
+used by the 2026-07-02 tester package.
 
 Apply after `repo sync` and before building:
 
@@ -31,11 +31,11 @@ if a patch conflicts with the current source tree.
 
 Latest validated local tester package:
 
-- `lineage-23.2-20260701-UNOFFICIAL-wisdom.zip`
+- `lineage-23.2-20260702-UNOFFICIAL-wisdom.zip`
 - SHA-256:
-  `b942d502585b19a507ef84587392db9ad71e5bf7b3005eb783c17d7a889bf20d`
-- Runtime proof: TWRP install exit 0, incremental `1782872492`,
-  `sys.boot_completed=1`, FBE `encrypted/file`, SELinux Enforcing.
+  `d3346dc9c6333582dcd8cb0758dce115919a3351aac386fec5c749bb6c75cab5`
+- Runtime proof: TWRP install exit 0, incremental `1782983697`,
+  `sys.boot_completed=1`; local video and Nitter web video playback work.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:
