@@ -1,0 +1,38 @@
+diff --git a/common/private/file_contexts b/common/private/file_contexts
+index d0618ad..f2f0659 100644
+--- a/common/private/file_contexts
++++ b/common/private/file_contexts
+@@ -2,3 +2,6 @@
+ 
+ ### DATA
+ /data/zram(/.*)?                             u:object_r:zram_data_file:s0
++
++### OMC
++/(product|system/product)/omc(/.*)?          u:object_r:samsung_omc_file:s0
+diff --git a/common/public/file.te b/common/public/file.te
+index 05d43ab..2309344 100644
+--- a/common/public/file.te
++++ b/common/public/file.te
+@@ -2,3 +2,6 @@
+ 
+ ### DATA
+ type zram_data_file, file_type, data_file_type, core_data_file_type;
++
++### OMC
++type samsung_omc_file, file_type, system_file_type;
+diff --git a/common/vendor/rild.te b/common/vendor/rild.te
+index 6bfdc95..bebda41 100644
+--- a/common/vendor/rild.te
++++ b/common/vendor/rild.te
+@@ -50,6 +50,11 @@ allow rild prov_efs_file:file r_file_perms;
+ # /mnt/vendor/efs/nv_data.bin
+ allow rild bin_nv_data_efs_file:file { rw_file_perms setattr unlink };
+ 
++# /product/omc
++# Samsung's vendor RIL reads OMC/CSC data from /product during SIM preconfig.
++typeattribute rild vendor_executes_system_violators;
++r_dir_file(rild, samsung_omc_file)
++
+ # /proc/net/xt_qtaguid/iface_stat_fmt
+ allow rild proc_qtaguid_stat:file r_file_perms;
+ 

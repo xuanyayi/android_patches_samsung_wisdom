@@ -33,9 +33,10 @@ Latest validated local tester package:
 
 - `lineage-23.2-20260702-UNOFFICIAL-wisdom.zip`
 - SHA-256:
-  `d3346dc9c6333582dcd8cb0758dce115919a3351aac386fec5c749bb6c75cab5`
-- Runtime proof: TWRP install exit 0, incremental `1782983697`,
-  `sys.boot_completed=1`; local video and Nitter web video playback work.
+  `011a6ff96832907d3c01c5aa5f86a63375f535431b66ea2739e16d8ebba6d461`
+- Runtime proof: `mka bacon` passed, sideload/TWRP install returned success,
+  `sys.boot_completed=1`; user confirmed SIM card detection works after the
+  OMC/RILD sepolicy fix. Earlier media fixes remain in this patch set.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:
