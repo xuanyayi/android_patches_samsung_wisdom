@@ -2,7 +2,7 @@
 
 Platform patches used by the Samsung wisdom / SM-P205 LineageOS 23.2 bring-up.
 The default script mode applies the current release-candidate platform patch set
-used by the 2026-07-02 tester package.
+used by the 2026-07-03 tester package.
 
 Apply after `repo sync` and before building:
 
@@ -31,12 +31,13 @@ if a patch conflicts with the current source tree.
 
 Latest validated local tester package:
 
-- `lineage-23.2-20260702-UNOFFICIAL-wisdom.zip`
+- `lineage-23.2-20260703-UNOFFICIAL-wisdom.zip`
 - SHA-256:
-  `011a6ff96832907d3c01c5aa5f86a63375f535431b66ea2739e16d8ebba6d461`
+  `aab4c6dabc0cd455deb09316c87ac9b06811054c0e0f7a77a7bc4e22050b1d11`
 - Runtime proof: `mka bacon` passed, sideload/TWRP install returned success,
-  `sys.boot_completed=1`; user confirmed SIM card detection works after the
-  OMC/RILD sepolicy fix. Earlier media fixes remain in this patch set.
+  `sys.boot_completed=1`; Widevine HAL starts and registers after the
+  BoringSSL `CBS_init` compatibility patch and Samsung Widevine blob packaging.
+  Earlier media and OMC/RILD fixes remain in this patch set.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:
