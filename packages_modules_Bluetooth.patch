@@ -1,0 +1,28 @@
+diff --git a/system/gd/hci/hci_metrics_logging.cc b/system/gd/hci/hci_metrics_logging.cc
+index 1bc8359..c94e899 100644
+--- a/system/gd/hci/hci_metrics_logging.cc
++++ b/system/gd/hci/hci_metrics_logging.cc
+@@ -38,6 +38,11 @@ void log_hci_event(std::unique_ptr<CommandView>& command_view, EventView event_v
+       if (complete_view.GetCommandOpCode() == OpCode::NONE) {
+         return;
+       }
++      if (command_view == nullptr) {
++        log::warn("Skipping command complete metrics for opcode {} without a pending command",
++                  OpCodeText(complete_view.GetCommandOpCode()));
++        return;
++      }
+       log::assert_that(command_view->IsValid(), "assert failed: command_view->IsValid()");
+       log_link_layer_connection_command_complete(event_view, command_view);
+       log_classic_pairing_command_complete(event_view, command_view);
+@@ -49,6 +54,11 @@ void log_hci_event(std::unique_ptr<CommandView>& command_view, EventView event_v
+       if (response_view.GetCommandOpCode() == OpCode::NONE) {
+         return;
+       }
++      if (command_view == nullptr) {
++        log::warn("Skipping command status metrics for opcode {} without a pending command",
++                  OpCodeText(response_view.GetCommandOpCode()));
++        return;
++      }
+       log::assert_that(command_view->IsValid(), "assert failed: command_view->IsValid()");
+       log_link_layer_connection_command_status(command_view, response_view.GetStatus());
+       log_classic_pairing_command_status(command_view, response_view.GetStatus());

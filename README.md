@@ -37,7 +37,9 @@ Latest validated local tester package:
 - Runtime proof: `mka bacon` passed, sideload/TWRP install returned success,
   `sys.boot_completed=1`; Widevine HAL starts and registers after the
   BoringSSL `CBS_init` compatibility patch and Samsung Widevine blob packaging.
-  Earlier media and OMC/RILD fixes remain in this patch set.
+  Earlier media and OMC/RILD fixes remain in this patch set. The current patch
+  queue also guards Bluetooth HCI metrics against missing pending-command state
+  and includes the complete legacy gralloc/BLAST compatibility changes.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:

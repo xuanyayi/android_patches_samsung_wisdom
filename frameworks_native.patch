@@ -96,10 +96,36 @@ index 05fbc14..2bfd407 100644
      if (eventCount == -1) {
          ALOGE("epoll_wait error while waiting for buffer release. errno=%d message='%s'", errno,
 diff --git a/libs/ui/GraphicBufferMapper.cpp b/libs/ui/GraphicBufferMapper.cpp
-index 7b5a27d..e9c6f75 100644
+index 7b5a27d..f8d893f 100644
 --- a/libs/ui/GraphicBufferMapper.cpp
 +++ b/libs/ui/GraphicBufferMapper.cpp
-@@ -179,6 +179,16 @@ status_t GraphicBufferMapper::unlock(buffer_handle_t handle, base::unique_fd* ou
+@@ -39,6 +39,7 @@
+ #include <ui/Gralloc5.h>
+ #include <ui/GraphicBuffer.h>
+ 
++#include <hardware/gralloc1.h>
+ #include <system/graphics.h>
+ 
+ using unique_fd = ::android::base::unique_fd;
+@@ -50,6 +51,17 @@ using LockResult = GraphicBufferMapper::LockResult;
+ 
+ ANDROID_SINGLETON_STATIC_INSTANCE( GraphicBufferMapper )
+ 
++static uint64_t convertLegacyLockUsage(uint64_t producerUsage, uint64_t consumerUsage) {
++    uint32_t usage = ANDROID_NATIVE_UNSIGNED_CAST(
++            android_convertGralloc1To0Usage(producerUsage, consumerUsage));
++    if ((producerUsage & GRALLOC1_PRODUCER_USAGE_VIDEO_DECODER) != 0 &&
++            (usage & GRALLOC_USAGE_SW_READ_MASK) == 0 &&
++            (usage & GRALLOC_USAGE_PROTECTED) == 0) {
++        usage |= GRALLOC_USAGE_SW_READ_OFTEN;
++    }
++    return usage & (GRALLOC_USAGE_SW_READ_MASK | GRALLOC_USAGE_SW_WRITE_MASK);
++}
++
+ void GraphicBufferMapper::preloadHal() {
+     Gralloc2Mapper::preload();
+     Gralloc3Mapper::preload();
+@@ -179,6 +191,16 @@ status_t GraphicBufferMapper::unlock(buffer_handle_t handle, base::unique_fd* ou
      return OK;
  }
  
@@ -116,26 +142,42 @@ index 7b5a27d..e9c6f75 100644
  status_t GraphicBufferMapper::lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds,
                                     void** vaddr) {
      auto result = lock(handle, static_cast<int64_t>(usage), bounds);
-@@ -214,6 +224,19 @@ status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint64_t produce
-                      bounds, vaddr, fenceFd);
- }
- 
+@@ -208,10 +230,31 @@ status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint32_t usage,
+ status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint64_t producerUsage,
+                                         uint64_t consumerUsage, const Rect& bounds, void** vaddr,
+                                         int fenceFd) {
+-    return lockAsync(handle,
+-                     ANDROID_NATIVE_UNSIGNED_CAST(
+-                             android_convertGralloc1To0Usage(producerUsage, consumerUsage)),
+-                     bounds, vaddr, fenceFd);
++    return lockAsync(handle, convertLegacyLockUsage(producerUsage, consumerUsage), bounds, vaddr,
++                     fenceFd);
++}
++
 +status_t GraphicBufferMapper::lockAsync(buffer_handle_t handle, uint64_t producerUsage,
 +                                        uint64_t consumerUsage, const Rect& bounds, void** vaddr,
 +                                        int fenceFd, int* outBytesPerPixel,
 +                                        int* outBytesPerStride) {
++    ATRACE_CALL();
++
++    int32_t bytesPerPixel = -1;
++    int32_t bytesPerStride = -1;
++    const uint64_t usage = convertLegacyLockUsage(producerUsage, consumerUsage);
++    ALOGV("legacy lockAsync usage producer=0x%" PRIx64 " consumer=0x%" PRIx64
++          " cpu=0x%" PRIx64,
++          producerUsage, consumerUsage, usage);
++    status_t err = mMapper->lock(handle, usage, bounds, fenceFd, vaddr,
++                                 &bytesPerPixel, &bytesPerStride);
 +    if (outBytesPerPixel) {
-+        *outBytesPerPixel = 0;
++        *outBytesPerPixel = bytesPerPixel;
 +    }
 +    if (outBytesPerStride) {
-+        *outBytesPerStride = 0;
++        *outBytesPerStride = bytesPerStride;
 +    }
-+    return lockAsync(handle, producerUsage, consumerUsage, bounds, vaddr, fenceFd);
-+}
-+
++    return err;
+ }
+ 
  status_t GraphicBufferMapper::lockAsyncYCbCr(buffer_handle_t handle, uint32_t usage,
-                                              const Rect& bounds, android_ycbcr* ycbcr,
-                                              int fenceFd) {
 diff --git a/libs/ui/include/ui/GraphicBufferMapper.h b/libs/ui/include/ui/GraphicBufferMapper.h
 index 91aabe9..6d334d1 100644
 --- a/libs/ui/include/ui/GraphicBufferMapper.h

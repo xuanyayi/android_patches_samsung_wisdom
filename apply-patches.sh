@@ -46,6 +46,7 @@ case "${MODE}" in
     apply_patch hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib hardware_samsung_slsi_scsc_wifibt_wpa_supplicant_lib.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch
     apply_patch packages/apps/Settings packages_apps_Settings.patch
+    apply_patch packages/modules/Bluetooth packages_modules_Bluetooth.patch
     apply_patch packages/modules/Connectivity packages_modules_Connectivity.patch
     apply_patch packages/modules/Wifi packages_modules_Wifi.patch
     apply_patch packages/modules/adb packages_modules_adb.patch
@@ -75,6 +76,7 @@ case "${MODE}" in
     apply_patch packages/apps/Aperture packages_apps_Aperture.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch
     apply_patch packages/apps/Settings packages_apps_Settings.patch
+    apply_patch packages/modules/Bluetooth packages_modules_Bluetooth.patch
     apply_patch packages/modules/Connectivity packages_modules_Connectivity.patch
     apply_patch packages/modules/DnsResolver packages_modules_DnsResolver.patch
     apply_patch packages/modules/Wifi packages_modules_Wifi.patch
