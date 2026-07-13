@@ -1,0 +1,32 @@
+diff --git a/wifi/aidl/default/wifi_legacy_hal.cpp b/wifi/aidl/default/wifi_legacy_hal.cpp
+index c8d6f9b..2eea425 100644
+--- a/wifi/aidl/default/wifi_legacy_hal.cpp
++++ b/wifi/aidl/default/wifi_legacy_hal.cpp
+@@ -894,6 +894,12 @@ wifi_link_stat* WifiLegacyHal::copyLinkStat(wifi_link_stat* stat_ptr,
+ wifi_error WifiLegacyHal::getLinkLayerStats(const std::string& iface_name,
+                                             LinkLayerStats& link_stats,
+                                             LinkLayerMlStats& link_ml_stats) {
++    // Legacy vendor HALs do not provide the size of the variable-length peer
++    // statistics buffer. Reject clearly corrupt counts before using them for
++    // pointer arithmetic or copying. A valid peer cannot expose anywhere near
++    // this many rate entries, while a bad count can make std::vector::assign
++    // read beyond the vendor-owned buffer.
++    constexpr uint32_t kMaxRateStatsPerPeer = 1024;
+     LinkLayerStats* link_stats_ptr = &link_stats;
+     link_stats_ptr->valid = false;
+ 
+@@ -912,6 +918,14 @@ wifi_error WifiLegacyHal::getLinkLayerStats(const std::string& iface_name,
+             for (uint32_t i = 0; i < iface_stats_ptr->num_peers; i++) {
+                 WifiPeerInfo peer;
+                 peer.peer_info = *l_peer_info_stats_ptr;
++                if (l_peer_info_stats_ptr->num_rate > kMaxRateStatsPerPeer) {
++                    LOG(ERROR) << "Invalid rate stats count "
++                               << l_peer_info_stats_ptr->num_rate
++                               << " from legacy Wi-Fi HAL";
++                    link_stats_ptr->valid = false;
++                    link_stats_ptr->peers.clear();
++                    return;
++                }
+                 if (l_peer_info_stats_ptr->num_rate > 0) {
+                     /* Copy the rate stats */
+                     peer.rate_stats.assign(

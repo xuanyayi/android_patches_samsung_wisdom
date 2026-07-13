@@ -1,0 +1,156 @@
+diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/screenrecord/RecordingServiceTest.java b/packages/SystemUI/multivalentTests/src/com/android/systemui/screenrecord/RecordingServiceTest.java
+index 0b9e660d9..d67abf5e3 100644
+--- a/packages/SystemUI/multivalentTests/src/com/android/systemui/screenrecord/RecordingServiceTest.java
++++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/screenrecord/RecordingServiceTest.java
+@@ -42,7 +42,9 @@ import android.app.ActivityOptions.LaunchCookie;
+ import android.app.Notification;
+ import android.app.NotificationManager;
+ import android.content.Intent;
++import android.graphics.drawable.Icon;
+ import android.media.projection.StopReason;
++import android.net.Uri;
+ import android.os.Handler;
+ import android.os.RemoteException;
+ import android.os.UserHandle;
+@@ -55,6 +57,7 @@ import com.android.systemui.SysuiTestCase;
+ import com.android.systemui.mediaprojection.MediaProjectionCaptureTarget;
+ import com.android.systemui.plugins.ActivityStarter;
+ import com.android.systemui.recordissue.ScreenRecordingStartTimeStore;
++import com.android.systemui.res.R;
+ import com.android.systemui.settings.UserContextProvider;
+ import com.android.systemui.statusbar.SysuiStatusBarStateController;
+ import com.android.systemui.statusbar.phone.KeyguardDismissUtil;
+@@ -316,6 +319,23 @@ public class RecordingServiceTest extends SysuiTestCase {
+         verify(mNotificationManager).cancelAsUser(any(), anyInt(), any());
+     }
+ 
++    @Test
++    public void testOnRecordingSaved_whenThumbnailNotificationFails_retriesWithoutThumbnail() {
++        ScreenMediaRecorder.SavedRecording savedRecording =
++                Mockito.mock(ScreenMediaRecorder.SavedRecording.class);
++        doReturn(Uri.parse("content://test/screenrecord.mp4")).when(savedRecording).getUri();
++        doReturn(Icon.createWithResource(mContext, R.drawable.ic_screenrecord))
++                .when(savedRecording).getThumbnail();
++        doThrow(new RuntimeException("large thumbnail"))
++                .doNothing()
++                .when(mNotificationManager).notifyAsUser(any(), anyInt(), any(), any());
++
++        mRecordingService.onRecordingSaved(savedRecording, UserHandle.of(mContext.getUserId()));
++
++        verify(mNotificationManager, times(2)).notifyAsUser(any(), anyInt(), any(), any());
++        verify(savedRecording, times(1)).getThumbnail();
++    }
++
+     @Test
+         public void testSecondaryDisplayRecording() throws IOException {
+         Intent startIntent =
+diff --git a/packages/SystemUI/src/com/android/systemui/screenrecord/RecordingService.java b/packages/SystemUI/src/com/android/systemui/screenrecord/RecordingService.java
+index 520966bb3..426cc53bc 100644
+--- a/packages/SystemUI/src/com/android/systemui/screenrecord/RecordingService.java
++++ b/packages/SystemUI/src/com/android/systemui/screenrecord/RecordingService.java
+@@ -451,6 +451,11 @@ public class RecordingService extends Service implements ScreenMediaRecorderList
+ 
+     @VisibleForTesting
+     protected Notification createSaveNotification(@Nullable SavedRecording recording) {
++        return createSaveNotification(recording, true);
++    }
++
++    private Notification createSaveNotification(
++            @Nullable SavedRecording recording, boolean includeThumbnail) {
+         Uri uri = recording != null ? recording.getUri() : null;
+         Intent viewIntent = new Intent(Intent.ACTION_VIEW)
+                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION)
+@@ -484,7 +489,7 @@ public class RecordingService extends Service implements ScreenMediaRecorderList
+                 .addExtras(extras);
+ 
+         // Add thumbnail if available
+-        Icon thumbnail = recording != null ? recording.getThumbnail() : null;
++        Icon thumbnail = includeThumbnail && recording != null ? recording.getThumbnail() : null;
+         if (thumbnail != null) {
+             Notification.BigPictureStyle pictureStyle = new Notification.BigPictureStyle()
+                     .bigPicture(thumbnail)
+@@ -590,8 +595,19 @@ public class RecordingService extends Service implements ScreenMediaRecorderList
+ 
+     protected void onRecordingSaved(ScreenMediaRecorder.SavedRecording savedRecording,
+             UserHandle currentUser) {
+-        mNotificationManager.notifyAsUser(null, mNotificationId,
+-                createSaveNotification(savedRecording), currentUser);
++        try {
++            mNotificationManager.notifyAsUser(null, mNotificationId,
++                    createSaveNotification(savedRecording), currentUser);
++        } catch (RuntimeException e) {
++            Log.w(getTag(), "Failed to post screen recording notification with thumbnail", e);
++            try {
++                mNotificationManager.notifyAsUser(null, mNotificationId,
++                        createSaveNotification(savedRecording, false), currentUser);
++            } catch (RuntimeException retryException) {
++                Log.e(getTag(), "Failed to post screen recording notification",
++                        retryException);
++            }
++        }
+     }
+ 
+     private void setTapsVisible(boolean turnOn) {
+diff --git a/packages/SystemUI/src/com/android/systemui/screenrecord/ScreenMediaRecorder.java b/packages/SystemUI/src/com/android/systemui/screenrecord/ScreenMediaRecorder.java
+index 8274713d3..9fbaf264d 100644
+--- a/packages/SystemUI/src/com/android/systemui/screenrecord/ScreenMediaRecorder.java
++++ b/packages/SystemUI/src/com/android/systemui/screenrecord/ScreenMediaRecorder.java
+@@ -81,6 +81,7 @@ public class ScreenMediaRecorder extends MediaProjection.Callback {
+     private static final int MAX_DURATION_MS = 60 * 60 * 1000;
+     private static final long MAX_FILESIZE_BYTES = 5000000000L;
+     private static final long MAX_FILESIZE_BYTES_LONGER = 16106100000L; // 15 GiB
++    private static final int MAX_THUMBNAIL_SIZE_PX = 320;
+     private static final String TAG = "ScreenMediaRecorder";
+ 
+     private File mTempVideoFile;
+@@ -481,6 +482,36 @@ public class ScreenMediaRecorder extends MediaProjection.Callback {
+         return new Size(thumbnailIconWidth, thumbnailIconHeight);
+     }
+ 
++    private static Size getBoundedThumbnailSize(Size requestedSize) {
++        int maxDimension = Math.max(requestedSize.getWidth(), requestedSize.getHeight());
++        if (maxDimension <= MAX_THUMBNAIL_SIZE_PX) {
++            return requestedSize;
++        }
++
++        float scale = (float) MAX_THUMBNAIL_SIZE_PX / maxDimension;
++        return new Size(
++                Math.max(1, Math.round(requestedSize.getWidth() * scale)),
++                Math.max(1, Math.round(requestedSize.getHeight() * scale)));
++    }
++
++    private static Bitmap getBoundedThumbnailBitmap(Bitmap thumbnailBitmap) {
++        int maxDimension = Math.max(thumbnailBitmap.getWidth(), thumbnailBitmap.getHeight());
++        if (maxDimension <= MAX_THUMBNAIL_SIZE_PX) {
++            return thumbnailBitmap;
++        }
++
++        float scale = (float) MAX_THUMBNAIL_SIZE_PX / maxDimension;
++        Bitmap scaledBitmap = Bitmap.createScaledBitmap(
++                thumbnailBitmap,
++                Math.max(1, Math.round(thumbnailBitmap.getWidth() * scale)),
++                Math.max(1, Math.round(thumbnailBitmap.getHeight() * scale)),
++                true);
++        if (scaledBitmap != thumbnailBitmap) {
++            thumbnailBitmap.recycle();
++        }
++        return scaledBitmap;
++    }
++
+     /**
+      * Release the resources without saving the data
+      */
+@@ -505,8 +536,11 @@ public class ScreenMediaRecorder extends MediaProjection.Callback {
+             mUri = uri;
+             try {
+                 Bitmap thumbnailBitmap = ThumbnailUtils.createVideoThumbnail(
+-                        file, thumbnailSize, null);
+-                mThumbnailIcon = Icon.createWithBitmap(thumbnailBitmap);
++                        file, getBoundedThumbnailSize(thumbnailSize), null);
++                if (thumbnailBitmap != null) {
++                    mThumbnailIcon = Icon.createWithBitmap(
++                            getBoundedThumbnailBitmap(thumbnailBitmap));
++                }
+             } catch (IOException e) {
+                 Log.e(TAG, "Error creating thumbnail", e);
+             }

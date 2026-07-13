@@ -37,9 +37,11 @@ case "${MODE}" in
     apply_patch external/wpa_supplicant_8 external_wpa_supplicant_8.patch
     apply_patch frameworks/av frameworks_av.patch
     apply_patch frameworks/base frameworks_base.patch
+    apply_patch frameworks/base frameworks_base_screenrecord_notification.patch
     apply_patch frameworks/ex frameworks_ex.patch
     apply_patch frameworks/native frameworks_native.patch
     apply_patch hardware/interfaces hardware_interfaces.patch
+    apply_patch hardware/interfaces hardware_interfaces_wifi_link_stats.patch
     apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
     apply_patch hardware/samsung hardware_samsung.patch
     apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
@@ -66,9 +68,11 @@ case "${MODE}" in
     apply_patch external/wpa_supplicant_8 external_wpa_supplicant_8.patch
     apply_patch frameworks/av frameworks_av.patch
     apply_patch frameworks/base frameworks_base.patch
+    apply_patch frameworks/base frameworks_base_screenrecord_notification.patch
     apply_patch frameworks/ex frameworks_ex.patch
     apply_patch frameworks/native frameworks_native.patch
     apply_patch hardware/interfaces hardware_interfaces.patch
+    apply_patch hardware/interfaces hardware_interfaces_wifi_link_stats.patch
     apply_patch hardware/lineage/interfaces hardware_lineage_interfaces.patch
     apply_patch hardware/samsung hardware_samsung.patch
     apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
