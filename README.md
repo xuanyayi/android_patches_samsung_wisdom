@@ -42,7 +42,10 @@ Latest validated local tester package:
   bounds SystemUI screen-recording thumbnails and retries failed save
   notifications without a thumbnail, validates legacy Wi-Fi HAL rate-stat
   counts before copying vendor buffers, and includes the complete legacy
-  gralloc/BLAST compatibility changes.
+  gralloc/BLAST compatibility changes. The wisdom kernel patch reports battery
+  maximum capacity from a completed low-to-full current-integration cycle
+  instead of the fuel-gauge SOC scaling ceiling, and keeps Android at 99% /
+  Charging throughout the hardware top-off phase until charging really stops.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:

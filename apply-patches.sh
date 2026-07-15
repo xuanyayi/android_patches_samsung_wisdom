@@ -46,6 +46,7 @@ case "${MODE}" in
     apply_patch hardware/samsung hardware_samsung.patch
     apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
     apply_patch hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib hardware_samsung_slsi_scsc_wifibt_wpa_supplicant_lib.patch
+    apply_patch kernel/samsung/universal7904 kernel_samsung_universal7904_battery_health.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch
     apply_patch packages/apps/Settings packages_apps_Settings.patch
     apply_patch packages/modules/Bluetooth packages_modules_Bluetooth.patch
@@ -77,6 +78,7 @@ case "${MODE}" in
     apply_patch hardware/samsung hardware_samsung.patch
     apply_patch hardware/samsung_slsi-linaro/openmax hardware_samsung_slsi-linaro_openmax.patch
     apply_patch hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib hardware_samsung_slsi_scsc_wifibt_wpa_supplicant_lib.patch
+    apply_patch kernel/samsung/universal7904 kernel_samsung_universal7904_battery_health.patch
     apply_patch packages/apps/Aperture packages_apps_Aperture.patch
     apply_patch packages/apps/Camera2 packages_apps_Camera2.patch
     apply_patch packages/apps/Settings packages_apps_Settings.patch

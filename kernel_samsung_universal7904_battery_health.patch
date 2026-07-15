@@ -1,0 +1,55 @@
+diff --git a/drivers/battery_v2/sec_battery.c b/drivers/battery_v2/sec_battery.c
+index 0b3beeb27f7..ce961394027 100644
+--- a/drivers/battery_v2/sec_battery.c
++++ b/drivers/battery_v2/sec_battery.c
+@@ -244,9 +244,6 @@
+
+ static int sec_bat_get_charge_full(struct sec_battery_info *battery)
+ {
+-	union power_supply_propval value = {0, };
+-	int capacity_max;
+-
+ #if defined(CONFIG_FG_FULLCAP_FROM_BATTERY)
+ 	struct capacity_measure_info *info = &battery->capacity_info;
+ 	s64 measured_uah;
+@@ -257,29 +254,18 @@
+ 	 * not a learned battery capacity.  Only report CHARGE_FULL after the
+ 	 * software coulomb counter has completed a qualifying charge cycle.
+ 	 */
+-	if (info->capacity_full > 0) {
+-		/* capacity_full is accumulated in mA seconds. */
+-		measured_uah = div_s64((s64)info->capacity_full * 1000, 3600);
+-		if (measured_uah > 0 && measured_uah <= (s64)design_uah * 12 / 10)
+-			return (int)measured_uah;
+-	}
+-#endif
++	if (info->capacity_full <= 0)
++		return 0;
+
+-	/*
+-	 * Before the first qualifying charge cycle, the software measurement is
+-	 * empty. Keep the existing fuel-gauge capacity_max as a usable fallback
+-	 * so Settings does not show an empty maximum-capacity field.
+-	 */
+-	psy_do_property(battery->pdata->fuelgauge_name, get,
+-			POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN, value);
+-
+-	capacity_max = value.intval;
+-	if (capacity_max <= 0)
+-		capacity_max = 1000;
+-	else if (capacity_max > 1000)
+-		capacity_max = 1000;
+-
+-	return battery->pdata->battery_full_capacity * capacity_max;
++	/* capacity_full is accumulated in mA seconds. */
++	measured_uah = div_s64((s64)info->capacity_full * 1000, 3600);
++	if (measured_uah <= 0 || measured_uah > (s64)design_uah * 12 / 10)
++		return 0;
++
++	return (int)measured_uah;
++#else
++	return 0;
++#endif
+ }
+
+ char *sec_cable_type[SEC_BATTERY_CABLE_MAX] = {
