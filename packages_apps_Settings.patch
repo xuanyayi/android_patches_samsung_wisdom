@@ -1,3 +1,17 @@
+diff --git a/res/values/lineage_config.xml b/res/values/lineage_config.xml
+index d353571..50d426e 100644
+--- a/res/values/lineage_config.xml
++++ b/res/values/lineage_config.xml
+@@ -32,6 +32,9 @@
+     <!-- Show battery cycle count -->
+     <bool name="config_show_battery_cycle_count" translatable="false">false</bool>
+ 
++    <!-- Show learned battery maximum capacity -->
++    <bool name="config_show_battery_maximum_capacity" translatable="false">true</bool>
++
+     <!-- Whether to show peak refresh rate in display settings -->
+     <bool name="config_show_peak_refresh_rate_switch">false</bool>
+ 
 diff --git a/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java b/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java
 index 16e72db..67ccba5 100644
 --- a/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java
@@ -66,6 +80,20 @@ index 16e72db..67ccba5 100644
 +        }
 +    }
  }
+diff --git a/src/com/android/settings/deviceinfo/batteryinfo/BatteryMaximumCapacityPreferenceController.java b/src/com/android/settings/deviceinfo/batteryinfo/BatteryMaximumCapacityPreferenceController.java
+index 186945e..677310b 100644
+--- a/src/com/android/settings/deviceinfo/batteryinfo/BatteryMaximumCapacityPreferenceController.java
++++ b/src/com/android/settings/deviceinfo/batteryinfo/BatteryMaximumCapacityPreferenceController.java
+@@ -35,7 +35,8 @@ public class BatteryMaximumCapacityPreferenceController extends BasePreferenceCo
+ 
+     @Override
+     public int getAvailabilityStatus() {
+-        return AVAILABLE;
++        return mContext.getResources().getBoolean(R.bool.config_show_battery_maximum_capacity)
++                ? AVAILABLE : UNSUPPORTED_ON_DEVICE;
+     }
+ 
+     @Override
 diff --git a/src/com/android/settings/users/UserSettings.java b/src/com/android/settings/users/UserSettings.java
 index d1186a5..b713acc 100644
 --- a/src/com/android/settings/users/UserSettings.java

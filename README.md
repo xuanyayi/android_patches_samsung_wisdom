@@ -31,21 +31,17 @@ if a patch conflicts with the current source tree.
 
 Latest validated local tester package:
 
-- `lineage-23.2-20260703-UNOFFICIAL-wisdom.zip`
+- `lineage-23.2-20260719-UNOFFICIAL-wisdom.zip`
 - SHA-256:
-  `aab4c6dabc0cd455deb09316c87ac9b06811054c0e0f7a77a7bc4e22050b1d11`
+  `abcb46c55c29e627d23d4862dbf852a84151102a535851a4923d070e56dd7390`
 - Runtime proof: `mka bacon` passed, sideload/TWRP install returned success,
-  `sys.boot_completed=1`; Widevine HAL starts and registers after the
-  BoringSSL `CBS_init` compatibility patch and Samsung Widevine blob packaging.
-  Earlier media and OMC/RILD fixes remain in this patch set. The current patch
-  queue also guards Bluetooth HCI metrics against missing pending-command state,
-  bounds SystemUI screen-recording thumbnails and retries failed save
-  notifications without a thumbnail, validates legacy Wi-Fi HAL rate-stat
-  counts before copying vendor buffers, and includes the complete legacy
-  gralloc/BLAST compatibility changes. The wisdom kernel patch reports battery
-  maximum capacity from a completed low-to-full current-integration cycle
-  instead of the fuel-gauge SOC scaling ceiling, and keeps Android at 99% /
-  Charging throughout the hardware top-off phase until charging really stops.
+  `sys.boot_completed=1`, `ro.build.version.incremental=1784431468`,
+  `vold.has_adoptable=1`, and `sm has-adoptable=true`. S Pen side-button wake
+  is carried by the wisdom prebuilt kernel. The current patch queue keeps the
+  earlier Widevine `CBS_init`, media, OMC/RILD, Bluetooth HCI metrics,
+  SystemUI screen-recording, Wi-Fi rate-stat, and legacy gralloc/BLAST fixes.
+  It also hides the unsupported S2MU004 learned maximum-capacity row through a
+  Settings overlay while leaving design capacity visible.
 
 To try the full LOS22.2-derived queue after manually resolving LOS23.2 drift,
 run:

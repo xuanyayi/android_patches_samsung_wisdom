@@ -31,6 +31,7 @@ apply_patch() {
 case "${MODE}" in
   release-current|--release-current|bootable-first|--bootable-first)
     apply_patch bionic bionic.patch
+    apply_patch device/samsung/wisdom device_samsung_wisdom.patch
     apply_patch device/samsung_slsi/sepolicy device_samsung_slsi_sepolicy.patch
     apply_patch external/boringssl external_boringssl.patch
     apply_patch external/tinyalsa external_tinyalsa.patch
@@ -63,6 +64,7 @@ case "${MODE}" in
     ;;
   all|--all)
     apply_patch bionic bionic.patch
+    apply_patch device/samsung/wisdom device_samsung_wisdom.patch
     apply_patch device/samsung_slsi/sepolicy device_samsung_slsi_sepolicy.patch
     apply_patch external/boringssl external_boringssl.patch
     apply_patch external/tinyalsa external_tinyalsa.patch
