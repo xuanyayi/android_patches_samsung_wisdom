@@ -1,8 +1,8 @@
 # Samsung wisdom LineageOS 23.2 Platform Patches
 
 Platform patches used by the Samsung wisdom / SM-P205 LineageOS 23.2 bring-up.
-The default script mode applies the current release-candidate platform patch set
-used by the 2026-07-03 tester package.
+The default script mode applies the current release-candidate platform patch
+set, including the device-validated Exynos OpenMAX camera encoder repair.
 
 Apply after `repo sync` and before building:
 
@@ -29,7 +29,25 @@ mka bacon -j"$(nproc --all)"
 The script is idempotent: it skips patches that are already applied and fails
 if a patch conflicts with the current source tree.
 
-Latest validated local tester package:
+## Camera recording repair
+
+`hardware_samsung_slsi-linaro_openmax.patch` targets LineageOS OpenMAX commit
+`15ab30812af9fe39fff2ae3cd867d7e954c73881`. It leaves the decoder path at
+upstream and changes the encoder surface-input path to pass the legacy Exynos
+multi-plane buffer to MFC through DMA-BUF metadata without a CPU mapper lock.
+
+Device validation:
+
+- ROM: `lineage-23.2-20260718-UNOFFICIAL-wisdom.zip`
+- SHA-256:
+  `0011f2069d73ac8d733cabd36e79d414810a2e0714ac2f3037f33504cc048c82`
+- Device: `R52R10DRHVP`
+- Runtime: `sys.boot_completed=1` and
+  `ro.build.version.incremental=1785308289`
+- TWRP sideload/install completed successfully; the user confirmed that camera
+  video recording works after boot.
+
+Earlier platform validation package:
 
 - `lineage-23.2-20260719-UNOFFICIAL-wisdom.zip`
 - SHA-256:
