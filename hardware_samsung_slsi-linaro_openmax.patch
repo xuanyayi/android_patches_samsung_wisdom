@@ -1,3 +1,103 @@
+diff --git a/openmax/component/video/dec/Exynos_OMX_VdecControl.c b/openmax/component/video/dec/Exynos_OMX_VdecControl.c
+index 17b46c4..8bb5984 100644
+--- a/openmax/component/video/dec/Exynos_OMX_VdecControl.c
++++ b/openmax/component/video/dec/Exynos_OMX_VdecControl.c
+@@ -142,12 +142,18 @@ OMX_ERRORTYPE Exynos_OMX_UseBuffer(
+                 range.eColorFormat  = pExynosPort->portDefinition.format.video.eColorFormat;
+                 stride              = range.nWidth;
+ 
+-                ret = Exynos_OSAL_LockMetaData(temp_bufferHeader->pBuffer,
+-                                               range,
+-                                               &stride, &bufferInfo,
+-                                               pExynosPort->eMetaDataType);
++                if (pExynosPort->portDefinition.nPortIndex == OUTPUT_PORT_INDEX) {
++                    ret = Exynos_OSAL_GetInfoFromGraphicMetaData(temp_bufferHeader->pBuffer,
++                                                                 &stride, &bufferInfo,
++                                                                 pExynosPort->eMetaDataType);
++                } else {
++                    ret = Exynos_OSAL_LockMetaData(temp_bufferHeader->pBuffer,
++                                                   range,
++                                                   &stride, &bufferInfo,
++                                                   pExynosPort->eMetaDataType);
++                }
+                 if (ret != OMX_ErrorNone) {
+-                    Exynos_OSAL_Log(EXYNOS_LOG_ERROR, "[%p][%s] Failed to Exynos_OSAL_LockMetaData (0x%x)",
++                    Exynos_OSAL_Log(EXYNOS_LOG_ERROR, "[%p][%s] Failed to get metadata buffer info (0x%x)",
+                                                         pExynosComponent, __FUNCTION__, ret);
+                     goto EXIT;
+                 }
+@@ -160,7 +166,8 @@ OMX_ERRORTYPE Exynos_OMX_UseBuffer(
+                 pExynosPort->extendBufferHeader[i].pYUVBuf[1] = bufferInfo.addr[1];
+                 pExynosPort->extendBufferHeader[i].pYUVBuf[2] = bufferInfo.addr[2];
+ 
+-                Exynos_OSAL_UnlockMetaData(temp_bufferHeader->pBuffer, pExynosPort->eMetaDataType);
++                if (pExynosPort->portDefinition.nPortIndex != OUTPUT_PORT_INDEX)
++                    Exynos_OSAL_UnlockMetaData(temp_bufferHeader->pBuffer, pExynosPort->eMetaDataType);
+ 
+                 Exynos_OSAL_Log(EXYNOS_LOG_TRACE, "[%s] buf %d pYUVBuf[0]:0x%x , pYUVBuf[1]:0x%x ", __FUNCTION__,
+                                 i, pExynosPort->extendBufferHeader[i].pYUVBuf[0],
+@@ -689,7 +696,10 @@ OMX_ERRORTYPE Exynos_OMX_FlushPort(OMX_COMPONENTTYPE *pOMXComponent, OMX_S32 port
+             if (portIndex == INPUT_PORT_INDEX) {
+                 Exynos_OMX_InputBufferReturn(pOMXComponent, pExynosPort->processData.bufferHeader);
+             } else if (portIndex == OUTPUT_PORT_INDEX) {
+-                if (pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK)
++                if ((pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK) &&
++                    !((pExynosPort->portDefinition.nPortIndex == OUTPUT_PORT_INDEX) &&
++                      ((pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC) ||
++                       (pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC_HANDLE))))
+                     Exynos_OSAL_UnlockMetaData(pExynosPort->processData.bufferHeader->pBuffer, pExynosPort->eMetaDataType);
+ 
+                 Exynos_OMX_OutputBufferReturn(pOMXComponent, pExynosPort->processData.bufferHeader);
+@@ -700,7 +710,10 @@ OMX_ERRORTYPE Exynos_OMX_FlushPort(OMX_COMPONENTTYPE *pOMXComponent, OMX_S32 port
+         for (i = 0; i < MAX_BUFFER_NUM; i++) {
+             if (pExynosPort->extendBufferHeader[i].bBufferInOMX == OMX_TRUE) {
+                 if (portIndex == OUTPUT_PORT_INDEX) {
+-                    if (pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK)
++                    if ((pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK) &&
++                        !((pExynosPort->portDefinition.nPortIndex == OUTPUT_PORT_INDEX) &&
++                          ((pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC) ||
++                           (pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC_HANDLE))))
+                         Exynos_OSAL_UnlockMetaData(pExynosPort->extendBufferHeader[i].OMXBufferHeader->pBuffer, pExynosPort->eMetaDataType);
+ 
+                     Exynos_OMX_OutputBufferReturn(pOMXComponent, pExynosPort->extendBufferHeader[i].OMXBufferHeader);
+@@ -2564,12 +2577,20 @@ OMX_ERRORTYPE Exynos_Shared_BufferToData(
+             range.eColorFormat  = pExynosPort->portDefinition.format.video.eColorFormat;
+             stride              = range.nWidth;
+ 
+-            ret = Exynos_OSAL_LockMetaData(pUseBuffer->bufferHeader->pBuffer,
+-                                           range,
+-                                           &stride, &bufferInfo,
+-                                           pExynosPort->eMetaDataType);
++            if ((pExynosPort->portDefinition.nPortIndex == OUTPUT_PORT_INDEX) &&
++                ((pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC) ||
++                 (pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC_HANDLE))) {
++                ret = Exynos_OSAL_GetInfoFromGraphicMetaData(pUseBuffer->bufferHeader->pBuffer,
++                                                             &stride, &bufferInfo,
++                                                             pExynosPort->eMetaDataType);
++            } else {
++                ret = Exynos_OSAL_LockMetaData(pUseBuffer->bufferHeader->pBuffer,
++                                               range,
++                                               &stride, &bufferInfo,
++                                               pExynosPort->eMetaDataType);
++            }
+             if (ret != OMX_ErrorNone) {
+-                Exynos_OSAL_Log(EXYNOS_LOG_ERROR, "[%s]: Failed to Exynos_OSAL_LockMetaData (err:0x%x)",
++                Exynos_OSAL_Log(EXYNOS_LOG_ERROR, "[%s]: Failed to get metadata buffer info (err:0x%x)",
+                                     __FUNCTION__, ret);
+                 goto EXIT;
+             }
+@@ -2638,7 +2659,10 @@ OMX_ERRORTYPE Exynos_Shared_DataToBuffer(
+     pUseBuffer->nFlags                = pData->nFlags;
+     pUseBuffer->pPrivate              = pData->pPrivate;
+ 
+-    if (pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK)
++    if ((pExynosPort->eMetaDataType & METADATA_TYPE_BUFFER_LOCK) &&
++        !((pExynosPort->portDefinition.nPortIndex == OUTPUT_PORT_INDEX) &&
++          ((pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC) ||
++           (pExynosPort->eMetaDataType == METADATA_TYPE_GRAPHIC_HANDLE))))
+         Exynos_OSAL_UnlockMetaData(pUseBuffer->bufferHeader->pBuffer, pExynosPort->eMetaDataType);
+ 
+ EXIT:
 diff --git a/openmax/component/video/enc/Exynos_OMX_VencControl.c b/openmax/component/video/enc/Exynos_OMX_VencControl.c
 index 6292f1e..ffb55d5 100644
 --- a/openmax/component/video/enc/Exynos_OMX_VencControl.c
